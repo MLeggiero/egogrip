@@ -1,0 +1,20 @@
+group,item,qty,notes,status
+headset,PICO 4 Ultra Enterprise,1,Enterprise edition required for camera API access,required
+headset,PICO controller,1,Comes with headset; strapped to gripper for 6-DoF pose,required
+connectivity,Powered USB-C hub with PD pass-through,1,Charges headset while streaming; fixes EgoKit battery drain,required
+connectivity,USB-C cable (data + PD),1,Host (headset) to hub,required
+wrist-camera,UVC camera module,1,Global shutter preferred; UVC mandatory,required
+wrist-camera,Wide/fisheye lens,1,Wide FOV at the tool (UMI-style),required
+tactile,Tactile pad array (FSR/capacitive/AnySkin),1,Reference modality; pluggable,required
+mcu,RP2040 board (Raspberry Pi Pico),1,USB-CDC to hub; PIO encoder + ADC,required
+gripper-state,Quadrature encoder,1,Jaw width -> counts; hall/pot fallback,required
+sync,LED + resistor,1,Tier-2 hardware sync pulse (optional but recommended),optional
+gripper-body,3D-printed parallel-jaw gripper,1,Spring-return; soft fingers,required
+gripper-body,Soft fingertips,2,Host tactile pads,required
+gripper-body,Return springs,2,Squeeze + return,required
+mounts,Controller mount (printed),1,Repeatable/kinematic seat,required
+mounts,Wrist-camera mount (printed),1,Inside gripper envelope,required
+mounts,MCU tray + cable management (printed),1,,required
+fasteners,M2/M3 machine screws,1 set,,required
+fasteners,Heat-set inserts,1 set,,required
+calibration,Charuco/AprilTag board,1,Intrinsics + hand-eye calibration,required

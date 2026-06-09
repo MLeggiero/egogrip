@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/egogrip/egogrip/schema/capture_manifest.schema.json",
+  "title": "egogrip episode manifest",
+  "description": "Self-describing manifest written by the egogrip APK for one recorded episode. The offline pipeline reads only this file to discover an episode's streams, units, calibration, and timing.",
+  "type": "object",
+  "required": ["format_version", "episode_id", "device", "clock", "streams", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "description": "SemVer of the raw capture format. Pipeline refuses unknown major versions.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "episode_id": { "type": "string", "description": "e.g. 2026-06-08T14-03-12_ep0007" },
+    "created_unix_ms": { "type": "integer", "description": "Wall-clock start (for humans only; not used for alignment)." },
+    "operator": { "type": "string", "description": "Optional operator/session label." },
+    "task_label": { "type": "string", "description": "Optional free-text task description." },
+    "device": {
+      "type": "object",
+      "required": ["model", "app_version"],
+      "additionalProperties": true,
+      "properties": {
+        "model": { "type": "string", "example": "PICO 4 Ultra Enterprise" },
+        "os": { "type": "string" },
+        "app_version": { "type": "string" },
+        "sdk_versions": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "clock": {
+      "type": "object",
+      "description": "All monotonic_ns values across all stream files are on this clock.",
+      "required": ["source", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string", "example": "SystemClock.elapsedRealtimeNanos" },
+        "unit": { "const": "ns" },
+        "start_monotonic_ns": { "type": "integer" },
+        "stop_monotonic_ns": { "type": "integer" }
+      }
+    },
+    "calibration_ref": {
+      "type": "string",
+      "description": "Path/hash of the calibration.json used (intrinsics + T_ctrl_gripper + T_gripper_wristcam + width fit)."
+    },
+    "streams": {
+      "type": "array",
+      "description": "Keyed list of all recorded streams. Adding a second gripper/camera = appending entries (N-extensible).",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "file", "timestamp_field", "sample_count"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "description": "Unique key, e.g. ego, wrist0, gripper0, tactile0." },
+          "kind": {
+            "type": "string",
+            "enum": ["video_rgb", "video_depth", "pose6dof", "skeleton", "gripper_state", "tactile", "sync_events"]
+          },
+          "file": { "type": "string", "description": "Relative path within the episode folder." },
+          "index_file": { "type": "string", "description": "For video: the frame-index CSV (frame_idx, monotonic_ns, pts_ns)." },
+          "timestamp_field": { "type": "string", "default": "monotonic_ns" },
+          "rate_hz_nominal": { "type": "number" },
+          "sample_count": { "type": "integer" },
+          "dropped_count": { "type": "integer", "default": 0 },
+          "frame_size": {
+            "type": "object",
+            "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } }
+          },
+          "codec": { "type": "string", "example": "h264" },
+          "units": { "type": "string", "description": "e.g. meters, raw_counts, kPa." },
+          "channels": {
+            "type": "array",
+            "description": "For tactile/state: channel layout & meaning, written by the active sensor plugin.",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "unit": { "type": "string" },
+                "location": { "type": "string", "description": "e.g. fingertip_left, pad_3" }
+              }
+            }
+          },
+          "frame": { "type": "string", "description": "Coordinate frame for poses, e.g. world, gripper_tcp." },
+          "latency_offset_ns": { "type": "integer", "description": "Measured fixed latency for this stream (subtracted at alignment)." },
+          "clock_fit": {
+            "type": "object",
+            "description": "Tier-1 source->device clock fit (device ≈ a*source + b) and residual.",
+            "properties": {
+              "a": { "type": "number" }, "b": { "type": "number" },
+              "residual_ms": { "type": "number" }, "method": { "type": "string" }
+            }
+          },
+          "plugin": { "type": "string", "description": "Sensor plugin id that produced this stream." }
+        }
+      }
+    },
+    "sync": {
+      "type": "object",
+      "description": "Cross-stream sync summary after Tier-1/2 processing (filled by pipeline; may be absent on raw).",
+      "properties": {
+        "tier": { "type": "integer", "enum": [0, 1, 2, 3] },
+        "max_pairwise_skew_ms": { "type": "number" },
+        "led_anchors": { "type": "integer" }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["recording", "finalized", "repaired", "aborted"],
+      "description": "recording: not yet closed; repaired: manifest rebuilt after crash."
+    },
+    "notes": { "type": "string" }
+  }
+}

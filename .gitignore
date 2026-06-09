@@ -1,0 +1,52 @@
+# --- Python (pipeline) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Unity (app) ---
+app/Library/
+app/Temp/
+app/Obj/
+app/Build/
+app/Builds/
+app/Logs/
+app/UserSettings/
+app/*.csproj
+app/*.sln
+app/.vsconfig
+
+# --- Android / Gradle (native-plugin, app build) ---
+.gradle/
+**/build/
+local.properties
+*.apk
+*.aab
+*.aar.bak
+
+# --- Firmware build artifacts ---
+firmware/**/build/
+*.uf2
+*.elf
+*.bin.tmp
+
+# --- Captured data: never commit episodes ---
+data/
+episodes/
+*.mp4
+*.h264
+*.bag
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
