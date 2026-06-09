@@ -40,6 +40,7 @@ firmware/**/build/
 # --- Captured data: never commit episodes ---
 data/
 episodes/
+_demo_out/
 *.mp4
 *.h264
 *.bag

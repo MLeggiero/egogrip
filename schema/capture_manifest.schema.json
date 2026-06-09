@@ -16,15 +16,40 @@
     "created_unix_ms": { "type": "integer", "description": "Wall-clock start (for humans only; not used for alignment)." },
     "operator": { "type": "string", "description": "Optional operator/session label." },
     "task_label": { "type": "string", "description": "Optional free-text task description." },
+    "conventions": {
+      "type": "object",
+      "description": "Canonical units/frames every device converts INTO. Lets the pipeline stay device-agnostic. See docs/PORTABILITY.md.",
+      "additionalProperties": false,
+      "properties": {
+        "length_unit": { "const": "m" },
+        "time_unit": { "const": "ns" },
+        "world_frame": { "type": "string", "default": "openxr_y_up_rh", "description": "Right-handed, +Y up, -Z forward." },
+        "quaternion_order": { "const": "xyzw" }
+      }
+    },
     "device": {
       "type": "object",
-      "required": ["model", "app_version"],
+      "required": ["model", "platform", "app_version"],
       "additionalProperties": true,
       "properties": {
         "model": { "type": "string", "example": "PICO 4 Ultra Enterprise" },
+        "platform": { "type": "string", "enum": ["pico", "quest", "android", "ios", "other"], "description": "Drives which capture adapter produced this episode." },
         "os": { "type": "string" },
         "app_version": { "type": "string" },
-        "sdk_versions": { "type": "object", "additionalProperties": { "type": "string" } }
+        "sdk_versions": { "type": "object", "additionalProperties": { "type": "string" } },
+        "capabilities": {
+          "type": "object",
+          "description": "What this device can sense; exporter degrades gracefully for absent modalities.",
+          "additionalProperties": true,
+          "properties": {
+            "ego_rgb": { "type": "boolean" },
+            "ego_depth": { "type": "boolean" },
+            "head_pose": { "type": "boolean" },
+            "hand_tracking": { "type": "boolean" },
+            "controller_pose": { "type": "boolean" },
+            "world_frame": { "type": "string" }
+          }
+        }
       }
     },
     "clock": {

@@ -11,20 +11,19 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Mark Leggiero" }]
 dependencies = [
-    "numpy>=1.24",
-    "pandas>=2.0",
-    # video decode/remux — pick one during Phase 6:
-    # "av>=11",            # PyAV
-    # "opencv-python>=4.8",
-    # dataset target — pin once LeRobot version is fixed:
-    # "lerobot",
+    "numpy>=1.24",          # the only hard dependency
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8"]
+validate = ["jsonschema>=4.0"]   # full schema validation (falls back to structural checks)
+lerobot = ["lerobot"]            # LeRobot v2 export target (pin once version is fixed)
+video = ["av>=11"]               # video transcode for LeRobot export (Phase 6)
+dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "jsonschema>=4.0"]
 
 [project.scripts]
 egogrip-export = "egogrip_pipeline.export_lerobot:main"
+egogrip-validate = "egogrip_pipeline.validate:main"
+egogrip-demo = "egogrip_pipeline.demo:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

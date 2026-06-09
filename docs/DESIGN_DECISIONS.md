@@ -75,3 +75,15 @@ bandwidth, mechanics, and sync complexity.
 **Decision:** MIT (matches UMI's permissive stance; simplest for adoption).
 **Why:** maximize reuse by other robot-learning researchers. Revisit if patent concerns on
 hardware arise (would move to Apache-2.0).
+
+## D11 — Device-agnostic: format is the contract; pipeline has no device code
+**Decision:** the raw episode format (manifest + streams) is a **cross-device contract** in
+canonical units/frames; the offline pipeline depends only on the manifest and contains **no
+PICO-specific code**. New devices (Quest 3, Android, iOS) are added via small capture adapters
+behind a Platform Abstraction Layer — not pipeline changes.
+**Why:** explicit user requirement and the core of EgoKit's value (one workflow across
+heterogeneous devices). Decouples capture hardware from the trainable output.
+**Implications:** pin canonical conventions (meters, ns, OpenXR right-handed +Y-up, quat xyzw);
+manifest carries `device.platform` + `device.capabilities`; exporter degrades gracefully for
+absent modalities; build the pipeline **first** to lock the contract. See
+[PORTABILITY.md](PORTABILITY.md).
