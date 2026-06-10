@@ -47,6 +47,11 @@ class EpisodeWriter(context: Context) {
     private var videoW = 0
     private var videoH = 0
 
+    // optional headset IMU/orientation stream
+    private var imuStreamId: String? = null
+    private var imuFile: String? = null
+    private var imuCount = 0
+
     private fun open(name: String, header: String): BufferedWriter {
         val w = BufferedWriter(FileWriter(File(dir, name)))
         w.write(header); w.newLine()
@@ -80,15 +85,23 @@ class EpisodeWriter(context: Context) {
         stopNs = arrivalNs
     }
 
-    /** Called by the optional camera module to register its mp4 + frame index. */
+    /** Called by the camera module to register its mp4 + frame index. */
     @Synchronized
     fun setVideo(streamId: String, mp4: String, indexCsv: String, w: Int, h: Int, frames: Int) {
         videoStreamId = streamId; videoFile = mp4; videoIndexFile = indexCsv
         videoW = w; videoH = h; videoCount = frames
     }
 
+    /** Called by the IMU module to register the orientation stream. */
+    @Synchronized
+    fun setImu(streamId: String, file: String, samples: Int) {
+        imuStreamId = streamId; imuFile = file; imuCount = samples
+    }
+
     fun statusLine(): String =
-        "state=$stateCount tactile=$tactileCount" + (videoStreamId?.let { " video=$videoCount" } ?: "")
+        "state=$stateCount tactile=$tactileCount" +
+            (videoStreamId?.let { " video=$videoCount" } ?: "") +
+            (imuStreamId?.let { " imu=$imuCount" } ?: "")
 
     @Synchronized
     fun finalizeEpisode(): File {
@@ -123,6 +136,13 @@ class EpisodeWriter(context: Context) {
                 put("timestamp_field", "monotonic_ns"); put("sample_count", videoCount)
                 put("codec", "h264")
                 put("frame_size", JSONObject().apply { put("width", videoW); put("height", videoH) })
+            })
+        }
+        imuStreamId?.let { iid ->
+            streams.put(JSONObject().apply {
+                put("id", iid); put("kind", "imu")
+                put("file", imuFile); put("timestamp_field", "monotonic_ns")
+                put("sample_count", imuCount); put("frame", "head")
             })
         }
 

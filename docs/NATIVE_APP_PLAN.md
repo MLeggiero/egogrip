@@ -4,21 +4,24 @@ Plan for the on-device capture app, ordered so tomorrow's PICO session is produc
 step is independently testable. "Native-first" gets data flowing without Unity/enterprise
 approval; the same capture core later becomes the AAR plugin inside the Unity app.
 
-## P0 — Serial + episode (DONE, in `app-native/`)
+## P0 — Serial + camera + IMU + episode (DONE, in `app-native/`)
 - USB device listing (proves hub/OTG/camera enumeration on the PICO).
 - RP2040 USB-serial open + protocol parse → `gripper_state.csv` + `tactile.csv`.
-- `EpisodeWriter` emits the egogrip raw format; one shared monotonic clock.
+- **Camera:** USB/external UVC via **Camera2 → MediaRecorder** (framework only, no dependency)
+  → `wrist0.mp4` + `wrist0_frames.csv`; degrades gracefully if Camera2 can't see the cam.
+- **IMU:** headset 3-DoF orientation → `imu.csv` (framework only).
+- `EpisodeWriter` emits the egogrip raw format; one shared monotonic clock; pre-flight
+  (battery/storage).
 - **Feeds pipeline:** `egogrip-validate` passes on pulled episodes today.
-- **Gap:** no pose, no video yet → `egogrip-export` (needs pose) won't run; that's expected.
+- **Gap:** no 6-DoF gripper pose yet → `egogrip-export` (needs pose) won't run; expected.
 
-## P1 — UVC camera → mp4 (tomorrow's stretch / next code task)
-Goal: `wrist0.mp4` + `wrist0_frames.csv` time-aligned to serial.
-- Open UVC via herohan/UVCAndroid (`optional/UvcClient.kt` is the starting point).
-- Pipe frames to **MediaCodec** (H.264) → **MediaMuxer** mp4; write `frame_idx,monotonic_ns,pts_ns`
-  on the shared clock in the frame callback.
-- Register the stream via `EpisodeWriter.setVideo(...)`.
-- **Test:** pull an episode, `egogrip-validate`; spot-check frame timestamps vs serial.
-- Risk: UVC libs are finicky — keep it isolated so serial capture never depends on it.
+## P1 — Camera sync hardening (next code task)
+The Camera2 path records video + a per-frame index now; refine its precision.
+- Cross-check `wrist0_frames.csv` (`monotonic_ns` from `onCaptureStarted`, `pts_ns` = HW
+  timestamp) against serial; add the Tier-2 **sync-LED** detector hook (docs/SYNC.md).
+- Provide the **libuvc fallback** (`optional/UvcClient.kt`, herohan) for PICOs that don't expose
+  the UVC cam through Camera2; same `EpisodeWriter.setVideo(...)` contract.
+- **Test:** pull an episode, `egogrip-validate`; verify frame↔serial skew under one frame.
 
 ## P2 — Gripper pose (the real action signal) — needs XR
 Native Android can't easily get controller/head/hand pose; two paths:

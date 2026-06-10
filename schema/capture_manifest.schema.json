@@ -80,7 +80,7 @@
           "id": { "type": "string", "description": "Unique key, e.g. ego, wrist0, gripper0, tactile0." },
           "kind": {
             "type": "string",
-            "enum": ["video_rgb", "video_depth", "pose6dof", "skeleton", "gripper_state", "tactile", "sync_events"]
+            "enum": ["video_rgb", "video_depth", "pose6dof", "skeleton", "gripper_state", "tactile", "imu", "sync_events"]
           },
           "file": { "type": "string", "description": "Relative path within the episode folder." },
           "index_file": { "type": "string", "description": "For video: the frame-index CSV (frame_idx, monotonic_ns, pts_ns)." },

@@ -8,6 +8,17 @@ below before tomorrow**, especially the **first Gradle build** (it downloads ~1 
 Android SDK + dependencies the first time). If you walk in tomorrow with the app already built
 once, tomorrow is just *plug in → install → record*.
 
+> ### 💻 Which computer?
+> Do ALL of this on the **laptop/desktop you will physically have WITH the PICO tomorrow** (or
+> at least on the **same Wi-Fi network** as the PICO). This is not the machine egogrip was
+> scaffolded on. You need that build machine to:
+> - install Android Studio + `adb`,
+> - clone this repo (`git clone <the GitHub URL>` once it's pushed),
+> - do the first Gradle build there,
+> - be on the same network as the PICO for **wireless ADB**.
+>
+> Get the repo onto that machine with `git clone`, then open `app-native/` in Android Studio.
+
 ---
 
 ## ⚠️ The single-port problem (read this first)

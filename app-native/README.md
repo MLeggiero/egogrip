@@ -20,30 +20,36 @@ window; pose + enterprise ego camera come later in Unity). Full runbook:
 ## What it does
 - **Refresh** lists every USB device on the hub with VID/PID and tags (`SERIAL`, `UVC-CAMERA`)
   — this alone proves the hub + OTG + camera enumerate on the PICO.
-- **Start** opens the RP2040 (CDC), parses the framed protocol, and writes an episode under
-  `/sdcard/Android/data/org.egogrip.capture/files/episodes/<id>/`.
+- **Start** captures, on one shared monotonic clock, and writes an episode under
+  `/sdcard/Android/data/org.egogrip.capture/files/episodes/<id>/`:
+  - **serial** — RP2040 (CDC), framed protocol → `gripper_state.csv` + `tactile.csv`
+  - **camera** — USB/external UVC via **Camera2** (no dependency) → `wrist0.mp4` +
+    `wrist0_frames.csv`; skips gracefully if the PICO doesn't expose the cam to Camera2
+  - **IMU** — headset orientation (game rotation vector) → `imu.csv` (3-DoF, free)
 - **Stop** finalizes `manifest.json`. Pull with the `adb pull` line the app prints.
 
-Episodes have serial streams but **no gripper pose yet** (pose needs the controller/Unity
-phase), so they validate *capture*; `egogrip-validate` passes, `egogrip-export` (needs pose)
-does not — expected.
+Episodes have serial + camera + IMU but **no 6-DoF gripper pose yet** (that needs the
+controller/Unity phase), so they validate *capture*; `egogrip-validate` passes, `egogrip-export`
+(needs a pose stream) does not — expected.
 
 ## Files
 - `Protocol.kt` — parses the RP2040 frames (mirrors the firmware).
 - `SerialClient.kt` — usb-serial-for-android open + permission + read loop.
+- `Camera2Client.kt` — USB/external camera → mp4 via Camera2 (framework only, no dependency).
+- `ImuClient.kt` — headset orientation → `imu.csv` (framework only).
 - `EpisodeWriter.kt` — writes the egogrip raw format (manifest + CSVs).
 - `CaptureClock.kt` — the one shared monotonic clock.
-- `MainActivity.kt` — device list + Start/Stop + log (programmatic UI, no XML, no AppCompat).
+- `MainActivity.kt` — device list + Start/Stop + pre-flight + log (programmatic UI, no AppCompat).
 
-## Enable the camera (optional, stretch)
-The default build has **no camera dependency** so a flaky UVC lib can't block the serial path.
-To add live UVC preview + frame capture:
-1. In `app/build.gradle.kts`, uncomment the `com.herohan:UVCAndroid` line.
-2. Copy `../optional/UvcClient.kt` into `app/src/main/java/org/egogrip/capture/`.
-3. Wire it in `MainActivity.startCapture()` per the comments in that file.
-Note: synchronized **UVC → mp4** capture is the next coding task (see
-[../docs/NATIVE_APP_PLAN.md](../docs/NATIVE_APP_PLAN.md)); the optional module currently proves
-the camera streams and logs frame timestamps.
+## Camera notes
+Camera capture is **built in via Camera2** — zero dependencies, so it never blocks the build.
+It works when the PICO surfaces the USB camera as a Camera2 device (`LENS_FACING_EXTERNAL`),
+common on Android 12+ with UVC kernel support. If it doesn't appear at runtime, the app logs it
+and keeps recording serial + IMU.
+
+**Fallback (only if Camera2 can't see the UVC cam):** a libuvc-based path in
+`../optional/UvcClient.kt` — uncomment `com.herohan:UVCAndroid` in `app/build.gradle.kts`, copy
+that file in, and wire it per its comments.
 
 ## Troubleshooting
 - **A dependency version won't resolve:** bump `usb-serial-for-android` to the latest, or check

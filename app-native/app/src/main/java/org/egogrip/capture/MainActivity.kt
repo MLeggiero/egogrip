@@ -1,10 +1,14 @@
 package org.egogrip.capture
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.os.BatteryManager
 import android.os.Bundle
+import android.os.StatFs
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -17,9 +21,9 @@ import android.widget.TextView
 import com.hoho.android.usbserial.driver.UsbSerialProber
 
 /**
- * Native USB+sensor capture sanity app for the PICO (tomorrow's first-light test).
- * Lists USB devices on the hub, streams the RP2040 over serial, and writes a real egogrip
- * episode on-device. Camera (UVC) capture is an opt-in module (see app-native/README.md).
+ * Native USB+sensor capture app for the PICO (tomorrow's first-light test). Lists USB devices
+ * on the hub, then on Start captures serial (RP2040), the USB/external camera (Camera2), and
+ * the headset IMU on one shared clock, writing a real egogrip episode on-device.
  */
 class MainActivity : Activity() {
 
@@ -30,6 +34,8 @@ class MainActivity : Activity() {
     private lateinit var stopBtn: Button
 
     private var serial: SerialClient? = null
+    private var camera: Camera2Client? = null
+    private var imu: ImuClient? = null
     private var writer: EpisodeWriter? = null
     private var recording = false
 
@@ -46,6 +52,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), 1)
+        }
         refreshDevices()
         log("Ready. Plug the hub (RP2040 + camera), then Refresh / Start.")
     }
@@ -104,15 +113,33 @@ class MainActivity : Activity() {
         return false
     }
 
+    private fun preflight() {
+        val pct = try {
+            (getSystemService(BATTERY_SERVICE) as BatteryManager)
+                .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        } catch (_: Exception) { -1 }
+        val base = getExternalFilesDir(null) ?: filesDir
+        val freeMb = try { StatFs(base.absolutePath).availableBytes / (1024 * 1024) } catch (_: Exception) { -1L }
+        log("Pre-flight: battery ${pct}%, free ${freeMb} MB")
+        if (pct in 0..15) log("⚠ battery low")
+        if (freeMb in 0..499) log("⚠ low storage (<500 MB)")
+    }
+
     private fun startCapture() {
         if (recording) return
         val w = EpisodeWriter(this)
         writer = w
+        preflight()
+
+        // headset orientation (3-DoF, dependency-free) and USB/external camera (Camera2)
+        imu = ImuClient(this, w.dir).also { log(if (it.start()) "IMU started" else "IMU: no rotation sensor") }
+        camera = Camera2Client(this, w.dir, onLog = { s -> runOnUiThread { log(s) } }).also { it.start() }
+
         val protocol = Protocol(
             onState = { micros, counts, trig -> w.writeState(CaptureClock.nowNs(), micros, counts, trig) },
             onTactile = { micros, ch -> w.writeTactile(CaptureClock.nowNs(), micros, ch) },
-            onSync = { _, id -> log("SYNC #$id") },
-            onInfo = { txt -> log("MCU: $txt") },
+            onSync = { _, id -> runOnUiThread { log("SYNC #$id") } },
+            onInfo = { txt -> runOnUiThread { log("MCU: $txt") } },
             onCrcError = { /* counted silently; surface if frequent */ },
         )
         serial = SerialClient(
@@ -132,7 +159,13 @@ class MainActivity : Activity() {
         if (!recording) return
         recording = false
         serial?.stop(); serial = null
-        val dir = writer?.finalizeEpisode()
+        val w = writer
+        if (w != null) {
+            camera?.stop(w)
+            imu?.stop(w)
+        }
+        camera = null; imu = null
+        val dir = w?.finalizeEpisode()
         writer = null
         startBtn.isEnabled = true; stopBtn.isEnabled = false
         statusText.text = "idle"

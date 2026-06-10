@@ -4,6 +4,12 @@
     <!-- USB host (OTG) is required to talk to the hub / RP2040 / camera. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
 
+    <!-- CAMERA = capture a USB/external UVC camera via Camera2 (NOT the gated PICO passthrough).
+         external camera so the headset's built-in cameras aren't required. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.external" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <!-- Episodes are written to app-specific external storage (getExternalFilesDir),
          which needs no storage permission. Pull with:
          adb pull /sdcard/Android/data/org.egogrip.capture/files/episodes -->
