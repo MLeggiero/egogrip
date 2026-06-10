@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- USB host (OTG) is required to talk to the hub / RP2040 / camera. -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+
+    <!-- Episodes are written to app-specific external storage (getExternalFilesDir),
+         which needs no storage permission. Pull with:
+         adb pull /sdcard/Android/data/org.egogrip.capture/files/episodes -->
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="egogrip Capture"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

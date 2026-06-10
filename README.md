@@ -67,11 +67,13 @@ These were chosen deliberately; rationale lives in
 
 ```
 egogrip/
-├── docs/              architecture, data format, sync, hardware, roadmap, decisions
-├── app/               Unity APK (in-VR GUI + capture orchestration)  [scaffold]
-├── native-plugin/     Android AAR: UVC cameras + USB-serial bridge   [scaffold]
-├── firmware/          RP2040 gripper MCU firmware                    [scaffold]
-├── pipeline/          Python: raw capture → LeRobot dataset          [scaffold]
+├── docs/              architecture, data format, sync, hardware, roadmap, decisions,
+│                      PORTABILITY, PICO_TOMORROW (setup runbook), NATIVE_APP_PLAN, adapters/
+├── app-native/        native Android (Kotlin) capture app — serial + episodes  [WORKING]
+├── app/               Unity APK (in-VR GUI + pose + enterprise camera)  [scaffold]
+├── native-plugin/     Android AAR: UVC cameras + USB-serial bridge      [scaffold]
+├── firmware/          RP2040 firmware — CircuitPython (flashable now) + C  [WORKING/scaffold]
+├── pipeline/          Python: raw capture → LeRobot dataset             [WORKING]
 ├── hardware/          mock-gripper CAD plan + BOM
 └── schema/            on-device raw capture format (JSON Schema)
 ```
@@ -89,12 +91,20 @@ native plugin. Every sample is stamped against one monotonic clock and written t
 
 ## Getting started
 
-Nothing to run yet — this is the plan + scaffold. Start with:
+**Recording on a PICO soon?** → [docs/PICO_TOMORROW.md](docs/PICO_TOMORROW.md) (install +
+sideload + flash the MCU) and [app-native/README.md](app-native/README.md).
 
-1. [docs/ROADMAP.md](docs/ROADMAP.md) — what to build, in what order.
+**Try the pipeline now (no hardware):**
+```bash
+cd pipeline && pip install -e . && egogrip-demo   # synth → validate → align → export
+```
+
+Then for the bigger picture:
+1. [docs/ROADMAP.md](docs/ROADMAP.md) / [docs/NATIVE_APP_PLAN.md](docs/NATIVE_APP_PLAN.md) — what to build, in order.
 2. [docs/HARDWARE.md](docs/HARDWARE.md) — order the BOM, build the rig.
 3. [docs/PICO_ENTERPRISE_NOTES.md](docs/PICO_ENTERPRISE_NOTES.md) — enroll for enterprise
    camera access (the long-lead item).
+4. [docs/PORTABILITY.md](docs/PORTABILITY.md) — how other headsets/phones reuse all of this.
 
 ## License
 
