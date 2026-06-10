@@ -66,8 +66,12 @@ def export_episode(
     rotation: str = "rot6d",
     include_tactile: bool = True,
     target: str = "neutral",
+    video: bool = False,
+    repo_id: str | None = None,
+    task: str | None = None,
 ) -> Path:
-    """Convert one raw episode into a dataset. Returns the written episode output dir."""
+    """Convert one raw episode into a dataset. Returns the output dir (per-episode for neutral,
+    the shared dataset root for lerobot)."""
     episode_dir = Path(episode_dir)
     manifest = Manifest.load(episode_dir)
     _check_format(manifest)
@@ -75,36 +79,60 @@ def export_episode(
     ep = build_timeline(manifest, episode_dir, fps=fps)
     state, state_names = build_state(ep, rotation)
     act = build_action(ep, action, rotation)
+    tactile = ep.tactile if (include_tactile and ep.tactile is not None) else None
+    task = task or manifest.task_label or "egogrip demonstration"
 
+    if target == "lerobot":
+        root = Path(out_dir)
+        return _write_lerobot(root, manifest, episode_dir, ep, state, state_names, act,
+                              tactile, task, repo_id)
+    out = Path(out_dir) / manifest.episode_id
+    return _write_neutral(out, manifest, episode_dir, ep, state, state_names, act, tactile,
+                          action, rotation, video)
+
+
+def _decode_camera_frames(episode_dir: Path, manifest: Manifest, ep) -> dict[str, np.ndarray]:
+    """Decode each camera's source video at the aligned frame indices -> (T,H,W,3) per camera."""
+    from .video import decode_indices
+
+    frames = {}
+    for vid, idx in ep.video_frame_idx.items():
+        src = episode_dir / manifest.stream(vid).file
+        frames[vid] = decode_indices(src, idx)
+    return frames
+
+
+def _write_neutral(out, manifest, episode_dir, ep, state, state_names, act, tactile,
+                   action, rotation, video) -> Path:
+    out.mkdir(parents=True, exist_ok=True)
     features = {
         "observation.state": {"shape": [state.shape[1]], "names": state_names},
         "action": {"shape": [act.shape[1]], "mode": action, "rotation": rotation},
         "timestamp": {"shape": [1]},
     }
-    for vid, idx in ep.video_frame_idx.items():
-        features[f"observation.images.{vid}"] = {
-            "source_video": manifest.stream(vid).file, "frame_index_ref": True,
-        }
     arrays = {
         "timestamp": ep.t_seconds.astype(np.float32),
         "observation.state": state,
         "action": act,
         "gripper_track": ep.gripper_track.astype(np.float32),
     }
-    for vid, idx in ep.video_frame_idx.items():
-        arrays[f"frame_idx.{vid}"] = idx.astype(np.int64)
-    if include_tactile and ep.tactile is not None:
-        arrays["observation.tactile"] = ep.tactile.astype(np.float32)
-        features["observation.tactile"] = {"shape": [ep.tactile.shape[1]], "names": ep.tactile_channels}
+    if tactile is not None:
+        arrays["observation.tactile"] = tactile.astype(np.float32)
+        features["observation.tactile"] = {"shape": [tactile.shape[1]], "names": ep.tactile_channels}
 
-    out = Path(out_dir) / manifest.episode_id
-    if target == "lerobot":
-        return _write_lerobot(out, manifest, ep, arrays, features)
-    return _write_neutral(out, manifest, ep, arrays, features)
+    if video:  # transcode each camera onto the aligned grid -> real mp4s
+        from .video import encode
 
+        cam = _decode_camera_frames(episode_dir, manifest, ep)
+        for vid, fr in cam.items():
+            encode(out / f"{vid}.mp4", fr, ep.fps)
+            features[f"observation.images.{vid}"] = {"video": f"{vid}.mp4", "shape": list(fr.shape[1:])}
+    else:       # keep frame-index references only (no transcode)
+        for vid, idx in ep.video_frame_idx.items():
+            arrays[f"frame_idx.{vid}"] = idx.astype(np.int64)
+            features[f"observation.images.{vid}"] = {
+                "source_video": manifest.stream(vid).file, "frame_index_ref": True}
 
-def _write_neutral(out: Path, manifest, ep, arrays, features) -> Path:
-    out.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out / "arrays.npz", **arrays)
     meta = {
         "episode_id": manifest.episode_id,
@@ -114,23 +142,56 @@ def _write_neutral(out: Path, manifest, ep, arrays, features) -> Path:
         "device": manifest.device,
         "features": features,
         "source_clock_fits": {
-            s.id: vars(s.clock_fit) for s in manifest.streams if s.clock_fit is not None
-        },
+            s.id: vars(s.clock_fit) for s in manifest.streams if s.clock_fit is not None},
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     return out
 
 
-def _write_lerobot(out: Path, manifest, ep, arrays, features) -> Path:
-    try:
-        import lerobot  # noqa: F401
-    except ImportError as e:
-        raise SystemExit(
-            "lerobot not installed. `pip install lerobot`, or use --target neutral."
-        ) from e
-    # TODO (Phase 6): create/append a LeRobotDataset, transcode each source video onto the
-    # aligned grid using frame_idx.<vid>, write features above, consolidate stats.
-    raise NotImplementedError("LeRobot writer — Phase 6 (neutral export works today).")
+def _import_lerobot():
+    for mod in ("lerobot.datasets.lerobot_dataset", "lerobot.common.datasets.lerobot_dataset"):
+        try:
+            return __import__(mod, fromlist=["LeRobotDataset"]).LeRobotDataset
+        except ImportError:
+            continue
+    raise SystemExit("lerobot not installed. `pip install lerobot`, or use --target neutral.")
+
+
+def _write_lerobot(root: Path, manifest, episode_dir, ep, state, state_names, act, tactile,
+                   task, repo_id) -> Path:
+    """Append this episode to a LeRobot v2 dataset at `root` (create on first episode)."""
+    LeRobotDataset = _import_lerobot()
+    repo_id = repo_id or f"egogrip/{root.name}"
+    cam = _decode_camera_frames(episode_dir, manifest, ep)
+    T = len(ep.t_seconds)
+
+    features = {
+        "observation.state": {"dtype": "float32", "shape": (state.shape[1],), "names": state_names},
+        "action": {"dtype": "float32", "shape": (act.shape[1],), "names": state_names},
+    }
+    if tactile is not None:
+        features["observation.tactile"] = {"dtype": "float32", "shape": (tactile.shape[1],),
+                                           "names": ep.tactile_channels}
+    for vid, fr in cam.items():
+        features[f"observation.images.{vid}"] = {
+            "dtype": "video", "shape": tuple(fr.shape[1:]), "names": ["height", "width", "channel"]}
+
+    if (root / "meta" / "info.json").exists():
+        ds = LeRobotDataset(repo_id, root=root)
+    else:
+        ds = LeRobotDataset.create(repo_id, fps=int(round(ep.fps)), features=features,
+                                   root=root, use_videos=True, robot_type="egogrip_umi")
+    for t in range(T):
+        frame = {"observation.state": state[t].astype(np.float32),
+                 "action": act[t].astype(np.float32), "task": task}
+        if tactile is not None:
+            frame["observation.tactile"] = tactile[t].astype(np.float32)
+        for vid, fr in cam.items():
+            frame[f"observation.images.{vid}"] = fr[t]
+        ds.add_frame(frame)
+    ds.save_episode()
+    ds.finalize()
+    return root
 
 
 def _check_format(manifest: Manifest) -> None:

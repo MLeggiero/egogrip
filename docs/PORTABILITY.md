@@ -24,13 +24,19 @@ This is why the pipeline is built first: it pins the contract every device must 
 | Pose meaning | `gripper_pose` is the **TCP** (jaw midpoint) in **world** | controller→TCP applied on-device |
 | Images | encoded video + per-frame `monotonic_ns` index | codec in manifest |
 
-Adapters declare their native frame and provide the transform into canonical:
-- **Unity** (PICO/Quest): left-handed, +Y up — flip handedness (negate Z + conjugate quat) in the adapter.
-- **ARKit** (iOS): right-handed, +Y up — already close to OpenXR; verify forward axis.
-- **ARCore** (Android): right-handed, +Y up — same.
+An adapter may store poses in its **native** frame as long as it **declares** that frame in
+`device.capabilities.world_frame`; the **pipeline normalizes to canonical on load** (so the
+handedness math lives in one tested place, not re-implemented per device):
+- **Unity** (PICO/Quest): `unity_y_up_lh` — left-handed, +Y up. Pipeline flips handedness.
+- **ARKit** (iOS): `openxr_y_up_rh` — right-handed, +Y up, already canonical (verify forward axis).
+- **ARCore** (Android): `openxr_y_up_rh` — same.
 
-[geometry.py](../pipeline/egogrip_pipeline/geometry.py) holds the conversion helpers so the
-math lives in one place.
+[geometry.py](../pipeline/egogrip_pipeline/geometry.py) holds the converters
+(`FRAME_CONVERTERS`); [sync.build_timeline](../pipeline/egogrip_pipeline/sync.py) applies the
+one named by the manifest. This is verified by `tests/test_portability.py`, which proves a
+Unity-frame episode and an OpenXR-frame episode of the same motion produce identical canonical
+poses through the unchanged pipeline. Concrete per-device writeups live in
+[adapters/](adapters/).
 
 ## Capability profile
 

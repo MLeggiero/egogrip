@@ -40,25 +40,38 @@ def generate_episode(
     hz_tactile: float = 200.0,
     n_tactile: int = 4,
     episode_id: str = "2026-06-08T00-00-00_synthetic",
+    platform: str = "pico",
+    world_frame: str = "openxr_y_up_rh",
+    real_video: bool = False,
+    video_size: tuple[int, int] = (64, 48),
 ) -> Path:
-    """Write a complete, schema-conformant episode folder. Returns its path."""
+    """Write a complete, schema-conformant episode folder. Returns its path.
+
+    `world_frame` controls the frame the pose data is *stored* in (canonical OpenXR by default,
+    or "unity_y_up_lh" to emulate a Unity/Quest device); the pipeline normalizes either to
+    canonical. `real_video=True` encodes index-coded mp4 frames (needs PyAV) so the export
+    transcode is testable; otherwise tiny placeholders are written.
+    """
     rng = random.Random(seed)
     out = Path(out_dir) / episode_id
     out.mkdir(parents=True, exist_ok=True)
 
     start_ns = 10 * NS  # pretend the device booted 10s ago
 
-    # ---- gripper TCP pose (canonical world frame), sampled at hz_pose ----
+    # ---- gripper TCP pose, generated in canonical frame, stored in `world_frame` ----
     pose_rows = []
     n_pose = int(duration_s * hz_pose)
     for i in range(n_pose):
         t = i / hz_pose
         ts = int(start_ns + t * NS)
-        # smooth Lissajous path, ~30cm in front, slowly rotating about Y
+        # smooth Lissajous path, ~30cm in front, slowly rotating about Y (canonical)
         x = 0.10 * math.sin(2 * math.pi * 0.5 * t)
         y = 1.10 + 0.05 * math.sin(2 * math.pi * 0.7 * t)
         z = -0.30 + 0.08 * math.cos(2 * math.pi * 0.5 * t)
         qx, qy, qz, qw = _axis_angle_quat(0, 1, 0, 0.6 * math.sin(2 * math.pi * 0.3 * t))
+        if world_frame == "unity_y_up_lh":
+            # inverse of geometry.from_unity (an involution): negate z, qx, qy
+            z, qx, qy = -z, -qx, -qy
         pose_rows.append([ts, f"{x:.6f}", f"{y:.6f}", f"{z:.6f}",
                           f"{qx:.6f}", f"{qy:.6f}", f"{qz:.6f}", f"{qw:.6f}", 1])
     _write_csv(out / "gripper_pose.csv",
@@ -102,7 +115,7 @@ def generate_episode(
     _write_csv(out / "tactile.csv",
                ["monotonic_ns", "mcu_micros"] + [f"ch{c}" for c in range(n_tactile)], tac_rows)
 
-    # ---- video frame indices (+ placeholder mp4s) ----
+    # ---- video frame indices (+ mp4s: real index-coded frames, or placeholders) ----
     def write_video(stream_id: str):
         n = int(duration_s * fps_video)
         rows = []
@@ -110,7 +123,20 @@ def generate_episode(
             ts = int(start_ns + (i / fps_video) * NS)
             rows.append([i, ts, ts])  # monotonic_ns == pts_ns in this fake
         _write_csv(out / f"{stream_id}_frames.csv", ["frame_idx", "monotonic_ns", "pts_ns"], rows)
-        (out / f"{stream_id}.mp4").write_bytes(b"\x00PLACEHOLDER_MP4")  # not real frames
+        if real_video:
+            import numpy as np  # lazy: only the real-video path needs numpy/PyAV
+
+            from .video import encode
+            W, H = video_size
+            # each frame a solid color that encodes its index (survives h264 within tolerance)
+            frames = np.empty((n, H, W, 3), dtype=np.uint8)
+            for i in range(n):
+                frames[i, :, :, 0] = (i * 7) % 256
+                frames[i, :, :, 1] = (i * 5) % 256
+                frames[i, :, :, 2] = (i * 3) % 256
+            encode(out / f"{stream_id}.mp4", frames, fps_video)
+        else:
+            (out / f"{stream_id}.mp4").write_bytes(b"\x00PLACEHOLDER_MP4")  # not real frames
         return n
 
     n_ego = write_video("ego")
@@ -137,10 +163,10 @@ def generate_episode(
         "conventions": {"length_unit": "m", "time_unit": "ns",
                         "world_frame": "openxr_y_up_rh", "quaternion_order": "xyzw"},
         "device": {
-            "model": "synthetic", "platform": "pico", "app_version": "0.0.0",
+            "model": f"synthetic-{platform}", "platform": platform, "app_version": "0.0.0",
             "capabilities": {"ego_rgb": True, "ego_depth": False, "head_pose": True,
-                             "hand_tracking": True, "controller_pose": True,
-                             "world_frame": "openxr_y_up_rh"},
+                             "hand_tracking": True, "controller_pose": platform in ("pico", "quest"),
+                             "world_frame": world_frame},
         },
         "clock": {"source": "synthetic", "unit": "ns",
                   "start_monotonic_ns": start_ns,

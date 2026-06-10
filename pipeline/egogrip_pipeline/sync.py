@@ -117,8 +117,11 @@ def build_timeline(manifest: Manifest, episode_dir: str | Path, fps: float = 30.
     if len(grid) < 2:
         raise ValueError("Episode too short for the requested fps.")
 
-    # gripper pose (already canonical world frame, on the device clock)
+    # gripper pose -> normalize the device's declared frame to canonical, then resample
     pt, pos, quat, track = io.load_pose(episode_dir, pose)
+    src_frame = (manifest.device.get("capabilities") or {}).get("world_frame", "openxr_y_up_rh")
+    convert = G.FRAME_CONVERTERS.get(src_frame, G.from_openxr)
+    pos, quat = convert(pos, quat)
     g_pos = G.resample_linear(pt, pos, grid)
     g_quat = G.resample_quat(pt, quat, grid)
     g_track = track[_nearest(pt, grid)]
