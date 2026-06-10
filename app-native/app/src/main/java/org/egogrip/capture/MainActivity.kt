@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.StatFs
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -174,6 +175,7 @@ class MainActivity : Activity() {
     }
 
     private fun log(msg: String) {
+        Log.i("egogrip", msg)          // also visible via `adb logcat -s egogrip` / VS Code debugger
         logText.append("• $msg\n")
     }
 

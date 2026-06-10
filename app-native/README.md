@@ -51,6 +51,13 @@ and keeps recording serial + IMU.
 `../optional/UvcClient.kt` — uncomment `com.herohan:UVCAndroid` in `app/build.gradle.kts`, copy
 that file in, and wire it per its comments.
 
+## Logs / debugging
+Every on-screen log line is also emitted to **logcat** under tag `egogrip`:
+```bash
+adb logcat -s egogrip          # capture trace + errors, live
+```
+(Works with a VS Code Android debugger's logcat view too. Android Studio is still the build path.)
+
 ## Troubleshooting
 - **A dependency version won't resolve:** bump `usb-serial-for-android` to the latest, or check
   that `jitpack.io` is reachable (it's declared in `settings.gradle.kts`).
