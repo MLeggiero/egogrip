@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declared here so they MERGE into any consuming app (the Unity APK) automatically — no need
+     to hand-edit Unity's manifest. CAMERA = UVC capture; usb.host = external USB devices. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.external" android:required="false" />
+</manifest>

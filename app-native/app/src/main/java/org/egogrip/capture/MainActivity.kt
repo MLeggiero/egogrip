@@ -13,6 +13,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Gravity
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
@@ -31,8 +34,18 @@ class MainActivity : Activity() {
     private lateinit var deviceText: TextView
     private lateinit var statusText: TextView
     private lateinit var logText: TextView
+    private lateinit var controllerText: TextView
     private lateinit var startBtn: Button
     private lateinit var stopBtn: Button
+
+    private var controllerProbe: ControllerProbe? = null
+    private val probeTicker = object : Runnable {
+        override fun run() {
+            val p = controllerProbe ?: return
+            controllerText.text = p.enumerate() + "\n" + p.headOrientationMatrix()
+            ui.postDelayed(this, 200)
+        }
+    }
 
     private var serial: SerialClient? = null
     private var camera: Camera2Client? = null
@@ -73,7 +86,8 @@ class MainActivity : Activity() {
         startBtn = Button(this).apply { text = "Start"; setOnClickListener { startCapture() } }
         stopBtn = Button(this).apply { text = "Stop"; isEnabled = false; setOnClickListener { stopCapture() } }
         val refreshBtn = Button(this).apply { text = "Refresh"; setOnClickListener { refreshDevices() } }
-        row.addView(startBtn); row.addView(stopBtn); row.addView(refreshBtn)
+        val controllerBtn = Button(this).apply { text = "Controllers"; setOnClickListener { toggleControllerProbe() } }
+        row.addView(startBtn); row.addView(stopBtn); row.addView(refreshBtn); row.addView(controllerBtn)
         root.addView(row)
 
         statusText = TextView(this).apply { text = "idle"; textSize = 18f; setPadding(0, 16, 0, 16) }
@@ -82,6 +96,10 @@ class MainActivity : Activity() {
         root.addView(title("USB devices on the hub"))
         deviceText = TextView(this).apply { textSize = 14f }
         root.addView(deviceText)
+
+        root.addView(title("Controllers (probe — what a non-XR app can see)"))
+        controllerText = TextView(this).apply { textSize = 13f; text = "(tap Controllers to probe)" }
+        root.addView(controllerText)
 
         root.addView(title("Log"))
         logText = TextView(this).apply { textSize = 13f; gravity = Gravity.TOP }
@@ -112,6 +130,37 @@ class MainActivity : Activity() {
             if (d.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_VIDEO) return true
         }
         return false
+    }
+
+    private fun toggleControllerProbe() {
+        if (controllerProbe == null) {
+            controllerProbe = ControllerProbe(this).also { it.start() }
+            ui.post(probeTicker)
+            log("Controller probe ON — point/press a controller; press buttons to see events.")
+        } else {
+            ui.removeCallbacks(probeTicker)
+            controllerProbe?.stop(); controllerProbe = null
+            controllerText.text = "(probe stopped)"
+            log("Controller probe OFF")
+        }
+    }
+
+    // Controller buttons arrive here (the trigger/grip/A/B/thumbstick-click map to KeyEvents).
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (controllerProbe != null &&
+            (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP)) {
+            log(ControllerProbe.describeKey(event))
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    // Thumbstick / trigger analog axes arrive here (SOURCE_JOYSTICK). Still NO pose axes.
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (controllerProbe != null &&
+            event.source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK) {
+            log(ControllerProbe.describeMotion(event))
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     private fun preflight() {
@@ -162,7 +211,11 @@ class MainActivity : Activity() {
         serial?.stop(); serial = null
         val w = writer
         if (w != null) {
-            camera?.stop(w)
+            val cam = camera
+            val frames = cam?.stop() ?: 0
+            if (cam != null && frames > 0 && cam.width > 0) {
+                w.setVideo("wrist0", "wrist0.mp4", "wrist0_frames.csv", cam.width, cam.height, frames)
+            }
             imu?.stop(w)
         }
         camera = null; imu = null
@@ -182,5 +235,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         if (recording) stopCapture()
+        ui.removeCallbacks(probeTicker)
+        controllerProbe?.stop(); controllerProbe = null
     }
 }

@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "egogrip-capture"
 include(":app")
+include(":capture")

@@ -12,6 +12,8 @@ import android.hardware.camera2.TotalCaptureResult
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
+import java.util.concurrent.Executor
 import android.util.Size
 import android.view.Surface
 import java.io.BufferedWriter
@@ -48,14 +50,15 @@ class Camera2Client(
     @Volatile var frameCount = 0; private set
 
     private fun pickCameraId(): String? {
-        val ids = manager.cameraIdList
-        // prefer an EXTERNAL camera (the USB UVC cam); else fall back to the first id
-        for (id in ids) {
+        // egogrip's wrist camera is always an external USB/UVC cam — never grab an internal
+        // (e.g. a PICO tracking) camera. Returns null if no external camera is present, so the
+        // caller cleanly records pose-only.
+        for (id in manager.cameraIdList) {
             val facing = manager.getCameraCharacteristics(id)
                 .get(CameraCharacteristics.LENS_FACING)
             if (facing == CameraCharacteristics.LENS_FACING_EXTERNAL) return id
         }
-        return ids.firstOrNull()
+        return null
     }
 
     private fun pickSize(id: String): Size {
@@ -113,15 +116,17 @@ class Camera2Client(
     }
 
     private fun openCamera(id: String) {
-        @Suppress("MissingPermission")
-        manager.openDevice(id, object : CameraDevice.StateCallback() {
+        val callback = object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 camera = device
                 startSession(device)
             }
             override fun onDisconnected(device: CameraDevice) { onLog("Camera disconnected"); cleanup() }
             override fun onError(device: CameraDevice, error: Int) { onLog("Camera error $error"); cleanup() }
-        }, handler)
+        }
+        val executor = Executor { command -> (handler ?: Handler(Looper.getMainLooper())).post(command) }
+        @Suppress("MissingPermission")
+        manager.openCamera(id, executor, callback)
     }
 
     private fun startSession(device: CameraDevice) {
@@ -158,14 +163,12 @@ class Camera2Client(
         }
     }
 
-    /** Stop and register the stream with the episode writer. Returns frames written. */
-    fun stop(writer: EpisodeWriter): Int {
+    /** Stop recording and return the number of frames written. The caller registers the stream:
+     *  the app via [EpisodeWriter.setVideo], or [EgogripCamera] via a manifest descriptor. */
+    fun stop(): Int {
         try { session?.stopRepeating() } catch (_: Exception) {}
         try { recorder?.stop() } catch (e: Exception) { onLog("Camera stop: ${e.message}") }
         index?.flush(); index?.close(); index = null
-        if (width > 0 && frameCount > 0) {
-            writer.setVideo(streamId, "$streamId.mp4", "${streamId}_frames.csv", width, height, frameCount)
-        }
         cleanup()
         onLog("Camera stopped, frames=$frameCount")
         return frameCount

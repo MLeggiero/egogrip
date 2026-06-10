@@ -28,6 +28,9 @@ android {
 }
 
 dependencies {
+    // Shared capture core (CaptureClock, Camera2Client, EgogripCamera) — also built as the AAR.
+    implementation(project(":capture"))
+
     // The ONLY hard dependency: USB-serial (CDC/FTDI) for the RP2040. Rock solid.
     implementation("com.github.mik3y:usb-serial-for-android:3.8.1")
 
