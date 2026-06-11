@@ -92,7 +92,6 @@ native plugin. Every sample is stamped against one monotonic clock and written t
 ## Getting started
 Download the latest .apk app file from app/Assets/Builds to the PICO 4 Ultra headset. Run the .apk application on your headset to install, and enjoy!
    camera access (the long-lead item).
-4. [docs/PORTABILITY.md](docs/PORTABILITY.md) — how other headsets/phones reuse all of this.
 
 ## License
 
