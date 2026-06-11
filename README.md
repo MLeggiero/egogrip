@@ -90,19 +90,7 @@ native plugin. Every sample is stamped against one monotonic clock and written t
 **LeRobot** dataset. Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Getting started
-
-**Recording on a PICO soon?** → [docs/PICO_TOMORROW.md](docs/PICO_TOMORROW.md) (install +
-sideload + flash the MCU) and [app-native/README.md](app-native/README.md).
-
-**Try the pipeline now (no hardware):**
-```bash
-cd pipeline && pip install -e . && egogrip-demo   # synth → validate → align → export
-```
-
-Then for the bigger picture:
-1. [docs/ROADMAP.md](docs/ROADMAP.md) / [docs/NATIVE_APP_PLAN.md](docs/NATIVE_APP_PLAN.md) — what to build, in order.
-2. [docs/HARDWARE.md](docs/HARDWARE.md) — order the BOM, build the rig.
-3. [docs/PICO_ENTERPRISE_NOTES.md](docs/PICO_ENTERPRISE_NOTES.md) — enroll for enterprise
+Download the latest .apk app file from app/Assets/Builds to the PICO 4 Ultra headset. Run the .apk application on your headset to install, and enjoy!
    camera access (the long-lead item).
 4. [docs/PORTABILITY.md](docs/PORTABILITY.md) — how other headsets/phones reuse all of this.
 
