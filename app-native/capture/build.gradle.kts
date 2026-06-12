@@ -18,3 +18,9 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    // libuvc-based external UVC camera support (cameras Camera2 can't see, incl. the D405's
+    // color stream). `api` so the consuming app/Unity gets it transitively.
+    api("com.herohan:UVCAndroid:1.0.4")
+}
