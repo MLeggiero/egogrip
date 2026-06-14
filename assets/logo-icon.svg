@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" color="#0f172a">
+  <!-- egogrip mark: stylized parallel-jaw gripper grasping a workpiece -->
+  <rect x="80" y="80" width="96" height="26" rx="13" fill="currentColor"/>
+  <rect x="92" y="104" width="26" height="100" rx="13" fill="currentColor"/>
+  <rect x="138" y="104" width="26" height="100" rx="13" fill="currentColor"/>
+  <circle cx="128" cy="192" r="11" fill="currentColor"/>
+</svg>
