@@ -26,7 +26,7 @@ Design rules:
 | `ego_frames.csv` | `frame_idx, monotonic_ns, pts_ns` | ns | index into `ego.mp4` |
 | `wrist0_frames.csv` | `frame_idx, monotonic_ns, pts_ns` | ns | index into `wrist0.mp4` |
 | `gripper_pose.csv` | `monotonic_ns, x, y, z, qx, qy, qz, qw, tracking_state` | m, unit quat | controller→TCP already applied; world frame |
-| `gripper_state.csv` | `monotonic_ns, width_m, raw_counts, trigger` | m, counts, 0/1 | jaw opening |
+| `gripper_state.csv` | `monotonic_ns, mcu_micros, raw_counts, delta_counts, width_preview_m, trigger` | counts, m, 0/1 | width recomputed in-pipeline from `delta_counts` × calibration ([CALIBRATION.md](CALIBRATION.md)) |
 | `tactile.csv` | `monotonic_ns, ch0 … chN` | sensor-defined | layout in manifest; `.npz` if high-rate |
 | `poses.jsonl` | `{monotonic_ns, head:{p,q}, hand_l:[26×{p,q}], hand_r:[26×{p,q}]}` | m, quat | OpenXR joint order |
 | `sync_events.csv` | `monotonic_ns, kind, id` | — | e.g. `LED_PULSE` markers |

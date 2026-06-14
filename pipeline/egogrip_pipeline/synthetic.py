@@ -93,16 +93,20 @@ def generate_episode(
             out_rows.append((arrival, mcu, i / hz))
         return out_rows
 
-    # gripper width: opens/closes 0.00..0.08 m
+    # gripper width: opens/closes 0.00..0.08 m. AS5600-style multi-turn accumulated counts at
+    # counts_per_mm=50 -> 0..4000 counts over 80 mm; raw_counts is the within-turn (mod 4096) value.
     width_rows = []
+    counts_per_mm = 50.0
     for arrival, mcu, t in serial_times(hz_state):
         wn = 0.5 * (1 + math.sin(2 * math.pi * 0.8 * t))  # 0..1
         width = 0.08 * wn
-        counts = int(width / 0.08 * 4096)
+        delta = int(width * 1000.0 * counts_per_mm)       # mm * counts/mm, relative to closed tare
+        raw = delta % 4096                                # within-turn AS5600 reading
         trigger = 1 if wn < 0.2 else 0
-        width_rows.append([arrival, mcu, f"{width:.6f}", counts, trigger])
+        width_rows.append([arrival, mcu, raw, delta, f"{width:.6f}", trigger])
     _write_csv(out / "gripper_state.csv",
-               ["monotonic_ns", "mcu_micros", "width_m", "raw_counts", "trigger"], width_rows)
+               ["monotonic_ns", "mcu_micros", "raw_counts", "delta_counts", "width_preview_m", "trigger"],
+               width_rows)
 
     # tactile: force rises as the gripper closes, per-channel offsets + noise
     tac_rows = []
