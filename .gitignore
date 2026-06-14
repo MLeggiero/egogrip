@@ -41,7 +41,7 @@ app/Packages/com.unity.xr.picoxr/
 .gradle/
 **/build/
 local.properties
-*.apk
+# *.apk - uploading any built apps
 *.aab
 *.aar.bak
 
