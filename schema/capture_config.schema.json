@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/egogrip/egogrip/schema/capture_config.schema.json",
+  "title": "egogrip capture config",
+  "description": "INPUT config (the typed sensor registry) that drives on-device recording. Distinct from capture_manifest.schema.json, which DESCRIBES a recorded episode. The app opens exactly the enabled sensors listed here and derives the episode manifest from them. Editing this file (not code) changes what is recorded.",
+  "type": "object",
+  "required": ["format_version", "sensors"],
+  "additionalProperties": false,
+  "$defs": {
+    "usb": {
+      "type": "object",
+      "description": "Select a USB device by vendor/product id (hex strings, e.g. 0x2E8A).",
+      "additionalProperties": false,
+      "required": ["vid", "pid"],
+      "properties": {
+        "vid": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" },
+        "pid": { "type": "string", "pattern": "^0x[0-9A-Fa-f]{1,4}$" }
+      }
+    },
+    "pose_offset": {
+      "type": "object",
+      "description": "Fixed rigid transform from the controller frame to the gripper TCP, expressed in the controller's LOCAL frame. Applied at capture time so the recorded pose is the real TCP. Provide rotation as exactly one of rotation_quat_xyzw / rotation_euler_deg / from_calibration; omit for identity.",
+      "additionalProperties": false,
+      "properties": {
+        "translation_m": {
+          "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3,
+          "description": "[x, y, z] meters in the controller's local frame."
+        },
+        "rotation_quat_xyzw": {
+          "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4
+        },
+        "rotation_euler_deg": {
+          "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3,
+          "description": "[rx, ry, rz] degrees; rotation = Rz*Ry*Rx (apply X, then Y, then Z)."
+        },
+        "from_calibration": {
+          "type": "boolean",
+          "description": "Resolve T_ctrl_gripper from calibration.json instead of inline values."
+        }
+      }
+    },
+    "serial_stream": {
+      "type": "object",
+      "description": "One stream produced by an rp2040_serial sensor, keyed by its packet type.",
+      "additionalProperties": false,
+      "required": ["packet", "stream_id", "kind"],
+      "properties": {
+        "packet": { "type": "string", "enum": ["state", "tactile"] },
+        "stream_id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["gripper_state", "tactile"] },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "unit": { "type": "string" },
+              "location": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "format_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "operator": { "type": "string", "description": "Default operator label written into episodes." },
+    "task_label": { "type": "string", "description": "Default task label written into episodes." },
+    "calibration_ref": { "type": "string", "description": "Path/hash of the calibration.json to use." },
+    "export": {
+      "type": "object",
+      "description": "Optional hints for the offline exporter (the recorder ignores these).",
+      "additionalProperties": false,
+      "properties": {
+        "fps": { "type": "number", "exclusiveMinimum": 0, "description": "Aligned-timeline rate (default 30)." },
+        "action": { "type": "string", "enum": ["absolute", "delta"] },
+        "rotation": { "type": "string", "enum": ["rot6d", "quat"] }
+      }
+    },
+    "sensors": {
+      "type": "array",
+      "description": "Keyed list of sensor INSTANCES. Adding a second gripper/camera = another entry (N-extensible).",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Unique sensor instance id." },
+          "type": { "type": "string", "enum": ["xr_pose", "ego_camera", "uvc_camera", "rp2040_serial"] },
+          "enabled": { "type": "boolean", "default": true },
+          "rate_hz": { "type": "number", "exclusiveMinimum": 0, "description": "Nominal rate (health/metadata only; timestamps are authoritative)." },
+          "stream_id": { "type": "string", "description": "Output stream id; defaults to the sensor id." },
+          "note": { "type": "string" },
+
+          "node": { "type": "string", "enum": ["left_hand", "right_hand", "head", "left_eye", "right_eye", "center_eye"], "description": "xr_pose: which XR node to record." },
+          "frame": { "type": "string", "description": "xr_pose: coordinate frame label (e.g. world)." },
+          "pose_offset": { "$ref": "#/$defs/pose_offset" },
+
+          "width": { "type": "integer", "minimum": 1 },
+          "height": { "type": "integer", "minimum": 1 },
+          "fps": { "type": "number", "exclusiveMinimum": 0 },
+          "codec": { "type": "string", "enum": ["h264", "hevc"] },
+          "bitrate": { "type": "integer", "minimum": 1 },
+          "index": { "type": "integer", "minimum": 0, "description": "uvc_camera: external camera index (alternative to usb)." },
+          "usb": { "$ref": "#/$defs/usb" },
+
+          "baud": { "type": "integer", "minimum": 1 },
+          "streams": { "type": "array", "items": { "$ref": "#/$defs/serial_stream" }, "minItems": 1, "description": "rp2040_serial: which packets become which streams." }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "enum": ["ego_camera", "uvc_camera"] } } },
+            "then": { "required": ["width", "height"] }
+          },
+          {
+            "if": { "properties": { "type": { "const": "xr_pose" } } },
+            "then": { "required": ["node"] }
+          },
+          {
+            "if": { "properties": { "type": { "const": "rp2040_serial" } } },
+            "then": { "required": ["streams"] }
+          }
+        ]
+      }
+    }
+  }
+}
