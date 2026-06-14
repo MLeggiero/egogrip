@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 600" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1040" height="600" fill="#f8fafc"/>
+  <text x="520" y="30" text-anchor="middle" font-size="19" font-weight="700" fill="#0f172a">egogrip — data flow (proposed system)</text>
+
+  <!-- config band -->
+  <rect x="300" y="48" width="320" height="34" rx="8" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="460" y="69" text-anchor="middle" font-size="12.5" fill="#7c2d12">capture_config.json — typed sensor registry (what to record)</text>
+  <path d="M460,82 L460,104" class="edge" stroke="#f59e0b" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- sensors group -->
+  <rect x="24" y="110" width="232" height="330" rx="12" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text x="40" y="132" font-size="14" font-weight="700" fill="#0f172a">Physical sensors</text>
+
+  <rect x="40" y="142" width="200" height="48" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.4"/>
+  <text x="52" y="161" font-size="12.5" fill="#0f172a">Ego cameras (PICO front)</text>
+  <text x="52" y="178" font-size="10.5" fill="#475569">RGB ~30 fps  ->  ego.mp4</text>
+
+  <rect x="40" y="198" width="200" height="48" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.4"/>
+  <text x="52" y="217" font-size="12.5" fill="#0f172a">Wrist camera (UVC)</text>
+  <text x="52" y="234" font-size="10.5" fill="#475569">RGB ~30 fps  ->  wrist0.mp4</text>
+
+  <rect x="40" y="254" width="200" height="48" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.4"/>
+  <text x="52" y="273" font-size="12.5" fill="#0f172a">Controllers x2 (6-DoF)</text>
+  <text x="52" y="290" font-size="10.5" fill="#475569">72-90 Hz  ->  gripper_pose.csv</text>
+
+  <rect x="40" y="310" width="200" height="48" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.4"/>
+  <text x="52" y="329" font-size="12.5" fill="#0f172a">RP2040 + AS5600</text>
+  <text x="52" y="346" font-size="10.5" fill="#475569">gripper width 200 Hz (serial)</text>
+
+  <rect x="40" y="366" width="200" height="48" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5 4"/>
+  <text x="52" y="385" font-size="12.5" fill="#334155">Tactile (future)</text>
+  <text x="52" y="402" font-size="10.5" fill="#64748b">plug-in ready in config + firmware</text>
+
+  <!-- sensors -> APK -->
+  <path d="M256,206 L300,206" class="edge" stroke="#475569" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="276" y="198" text-anchor="middle" font-size="9.5" fill="#475569">XR / cam</text>
+  <path d="M256,334 L300,334" class="edge" stroke="#475569" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="276" y="352" text-anchor="middle" font-size="9.5" fill="#475569">USB hub</text>
+
+  <!-- APK group -->
+  <rect x="300" y="104" width="320" height="336" rx="12" fill="#f0fdfa" stroke="#14b8a6" stroke-width="1.6"/>
+  <text x="316" y="126" font-size="13.5" font-weight="700" fill="#0f172a">PICO 4 Ultra Enterprise — egogrip APK</text>
+
+  <rect x="316" y="138" width="288" height="120" rx="8" fill="#ffffff" stroke="#14b8a6" stroke-width="1.3"/>
+  <text x="328" y="157" font-size="12.5" font-weight="700" fill="#0f766e">Unity (XR host)</text>
+  <text x="328" y="176" font-size="11" fill="#0f172a">• controller / head / hand 6-DoF pose</text>
+  <text x="328" y="194" font-size="11" fill="#0f172a">• enterprise ego camera -> Surface</text>
+  <text x="328" y="212" font-size="11" fill="#0f172a">• in-VR GUI + "Zero gripper" tare</text>
+  <text x="328" y="230" font-size="11" fill="#0f172a">• CaptureManager (reads the config)</text>
+  <text x="328" y="248" font-size="11" fill="#0f172a">• config-driven manifest writer</text>
+
+  <rect x="316" y="266" width="288" height="96" rx="8" fill="#ffffff" stroke="#14b8a6" stroke-width="1.3"/>
+  <text x="328" y="285" font-size="12.5" font-weight="700" fill="#0f766e">Native AAR (USB / codecs)</text>
+  <text x="328" y="304" font-size="11" fill="#0f172a">• UVC wrist cam -> H.264 MP4</text>
+  <text x="328" y="322" font-size="11" fill="#0f172a">• USB-serial reader (RP2040)</text>
+  <text x="328" y="340" font-size="11" fill="#0f172a">• MediaCodec encoder (ego / wrist)</text>
+
+  <rect x="316" y="372" width="288" height="54" rx="8" fill="#ecfeff" stroke="#06b6d4" stroke-width="1.4"/>
+  <text x="460" y="392" text-anchor="middle" font-size="11.5" font-weight="700" fill="#0e7490">one monotonic clock</text>
+  <text x="460" y="409" text-anchor="middle" font-size="10" fill="#0e7490">SystemClock.elapsedRealtimeNanos()</text>
+
+  <!-- APK -> episode -->
+  <path d="M620,272 L664,272" class="edge" stroke="#475569" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="642" y="264" text-anchor="middle" font-size="9.5" fill="#475569">writes</text>
+
+  <!-- episode group -->
+  <rect x="664" y="120" width="178" height="300" rx="12" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.6"/>
+  <text x="680" y="142" font-size="13.5" font-weight="700" fill="#0f172a">Episode folder</text>
+  <text x="680" y="158" font-size="10" fill="#92400e">one per take, on the headset</text>
+  <rect x="678" y="168" width="150" height="240" rx="6" fill="#ffffff" stroke="#fcd34d" stroke-width="1.2"/>
+  <text x="690" y="190" font-size="11" font-family="monospace" fill="#0f172a">manifest.json</text>
+  <text x="690" y="212" font-size="11" font-family="monospace" fill="#0f172a">ego.mp4</text>
+  <text x="690" y="230" font-size="11" font-family="monospace" fill="#0f172a">ego_frames.csv</text>
+  <text x="690" y="252" font-size="11" font-family="monospace" fill="#0f172a">wrist0.mp4</text>
+  <text x="690" y="270" font-size="11" font-family="monospace" fill="#0f172a">wrist0_frames.csv</text>
+  <text x="690" y="292" font-size="11" font-family="monospace" fill="#0f172a">gripper_pose.csv</text>
+  <text x="690" y="314" font-size="11" font-family="monospace" fill="#0f172a">gripper_state.csv</text>
+  <text x="690" y="336" font-size="11" font-family="monospace" fill="#0f172a">poses.jsonl</text>
+  <text x="690" y="362" font-size="10" fill="#92400e">every row carries</text>
+  <text x="690" y="378" font-size="10" fill="#92400e">monotonic_ns</text>
+
+  <!-- episode -> pipeline -->
+  <path d="M842,270 L876,270" class="edge" stroke="#475569" stroke-width="1.6" fill="none" marker-end="url(#arrow)"/>
+  <text x="859" y="262" text-anchor="middle" font-size="9" fill="#475569">pull</text>
+
+  <!-- pipeline group -->
+  <rect x="876" y="120" width="148" height="300" rx="12" fill="#faf5ff" stroke="#a855f7" stroke-width="1.6"/>
+  <text x="892" y="142" font-size="13.5" font-weight="700" fill="#0f172a">Offline pipeline</text>
+  <text x="892" y="158" font-size="10" fill="#6b21a8">any PC, after the fact</text>
+
+  <rect x="890" y="168" width="120" height="32" rx="6" fill="#ffffff" stroke="#a855f7" stroke-width="1.2"/>
+  <text x="950" y="188" text-anchor="middle" font-size="11.5" fill="#0f172a">validate</text>
+  <path d="M950,200 L950,212" class="edge" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="890" y="212" width="120" height="40" rx="6" fill="#ffffff" stroke="#a855f7" stroke-width="1.2"/>
+  <text x="950" y="230" text-anchor="middle" font-size="11.5" fill="#0f172a">align +</text>
+  <text x="950" y="245" text-anchor="middle" font-size="11.5" fill="#0f172a">resample 30 Hz</text>
+  <path d="M950,252 L950,264" class="edge" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="890" y="264" width="120" height="32" rx="6" fill="#ffffff" stroke="#a855f7" stroke-width="1.2"/>
+  <text x="950" y="284" text-anchor="middle" font-size="11.5" fill="#0f172a">export</text>
+  <path d="M950,296 L950,316" class="edge" stroke="#475569" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="890" y="316" width="120" height="48" rx="6" fill="#f3e8ff" stroke="#a855f7" stroke-width="1.5"/>
+  <text x="950" y="338" text-anchor="middle" font-size="11.5" font-weight="700" fill="#6b21a8">LeRobot v2</text>
+  <text x="950" y="354" text-anchor="middle" font-size="10.5" fill="#6b21a8">dataset</text>
+
+  <!-- calibration band -->
+  <rect x="470" y="486" width="320" height="34" rx="8" fill="#eef2ff" stroke="#6366f1" stroke-width="1.5"/>
+  <text x="630" y="507" text-anchor="middle" font-size="12" fill="#3730a3">calibration.json — counts->width, tare, camera intrinsics</text>
+  <path d="M470,503 L450,503 L450,440" stroke="#6366f1" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="412" y="468" font-size="9.5" fill="#3730a3">live preview</text>
+  <path d="M790,503 L950,503 L950,420" stroke="#6366f1" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="930" y="468" font-size="9.5" fill="#3730a3">authoritative</text>
+
+  <!-- caption -->
+  <text x="520" y="560" text-anchor="middle" font-size="11.5" fill="#334155">Sensors run at their native rates; every sample shares one clock. Mismatched rates (30 / 50 / 60 Hz...) are resampled offline onto a common grid — no capture-time sync.</text>
+</svg>
