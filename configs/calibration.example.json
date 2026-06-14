@@ -1,0 +1,10 @@
+{
+  "format_version": "0.1.0",
+  "gripper_width": {
+    "count_zero": 0,
+    "counts_per_mm": 50.0,
+    "width_closed_m": 0.0,
+    "direction": 1
+  },
+  "notes": "Set counts_per_mm from a 2-point measurement (jaws closed + one gauge block); see egogrip_pipeline.calibration.calibrate_width. count_zero is the AS5600 start-closed tare reported by the firmware ZERO command. direction is +/-1 for the encoder's count sense. Camera intrinsics and T_ctrl_gripper (controller->TCP) extrinsics live here too once the Phase-4 calibration exists."
+}

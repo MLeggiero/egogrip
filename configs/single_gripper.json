@@ -1,0 +1,62 @@
+{
+  "format_version": "0.1.0",
+  "operator": "default",
+  "task_label": "pick and place",
+  "calibration_ref": "calibration.json",
+  "export": { "fps": 30.0, "action": "absolute", "rotation": "rot6d" },
+  "sensors": [
+    {
+      "id": "ego",
+      "type": "ego_camera",
+      "enabled": true,
+      "rate_hz": 30,
+      "stream_id": "ego",
+      "width": 1280,
+      "height": 960,
+      "fps": 30,
+      "codec": "h264",
+      "bitrate": 6000000,
+      "note": "PICO enterprise front camera -> ego.mp4 (on-device H.264)."
+    },
+    {
+      "id": "wrist0",
+      "type": "uvc_camera",
+      "enabled": true,
+      "rate_hz": 30,
+      "stream_id": "wrist0",
+      "index": 0,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "codec": "h264",
+      "bitrate": 4000000,
+      "note": "USB UVC wrist camera on the powered hub."
+    },
+    {
+      "id": "gripper_pose",
+      "type": "xr_pose",
+      "enabled": true,
+      "rate_hz": 72,
+      "node": "right_hand",
+      "stream_id": "gripper_pose",
+      "frame": "world",
+      "pose_offset": {
+        "translation_m": [0.0, -0.02, -0.10],
+        "rotation_euler_deg": [0.0, 0.0, 0.0]
+      },
+      "note": "Controller pose + offset -> gripper TCP. Edit pose_offset to your mounting."
+    },
+    {
+      "id": "gripper",
+      "type": "rp2040_serial",
+      "enabled": true,
+      "usb": { "vid": "0x2E8A", "pid": "0x000A" },
+      "baud": 115200,
+      "streams": [
+        { "packet": "state", "stream_id": "gripper_state", "kind": "gripper_state" },
+        { "packet": "tactile", "stream_id": "tactile0", "kind": "tactile", "channels": [] }
+      ],
+      "note": "RP2040 + AS5600 gripper width over USB-serial; tactile reserved (0 channels)."
+    }
+  ]
+}

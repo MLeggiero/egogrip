@@ -1,6 +1,11 @@
-# egogrip
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-light.svg">
+    <img src="assets/logo.svg" alt="egogrip" width="380">
+  </picture>
+</p>
 
-**A self-contained, headset-only data-collection system for robot learning.**
+<p align="center"><strong>A self-contained, headset-only data-collection system for robot learning.</strong></p>
 
 `egogrip` turns a **PICO 4 Ultra Enterprise** headset plus a hand-held **UMI-style mock
 gripper** into a portable, multimodal demonstration recorder. An operator wears the headset,

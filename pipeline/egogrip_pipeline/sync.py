@@ -16,6 +16,7 @@ import numpy as np
 
 from . import geometry as G
 from . import io
+from .calibration import Calibration
 from .schema import GRIPPER_STATE, POSE6DOF, TACTILE, VIDEO_RGB, Manifest, Stream
 
 NS_PER_S = 1_000_000_000.0
@@ -95,12 +96,32 @@ def _find(manifest: Manifest, kind: str, frame: str | None = None) -> Stream | N
     return None
 
 
+def _width_series(cols: dict, calibration: Calibration | None, n: int) -> np.ndarray:
+    """Authoritative width(m): calibration applied to delta_counts when available, else the
+    on-device width_preview_m / legacy width_m column, else zeros."""
+    if calibration is not None and calibration.width is not None and "delta_counts" in cols:
+        return calibration.width.counts_to_m(cols["delta_counts"])
+    for c in ("width_preview_m", "width_m"):
+        if c in cols:
+            return cols[c]
+    if calibration is not None and calibration.width is not None and "raw_counts" in cols:
+        return calibration.width.counts_to_m(cols["raw_counts"])
+    return np.zeros(n)
+
+
 # --------------------------------------------------------------------------- main
 
 
-def build_timeline(manifest: Manifest, episode_dir: str | Path, fps: float = 30.0) -> AlignedEpisode:
-    """Resample every stream onto a uniform `fps` grid over the overlapping span."""
+def build_timeline(manifest: Manifest, episode_dir: str | Path, fps: float = 30.0,
+                   calibration: Calibration | None = None) -> AlignedEpisode:
+    """Resample every stream onto a uniform `fps` grid over the overlapping span.
+
+    Gripper width is recomputed from raw encoder counts via `calibration` (or the episode's
+    calibration.json when not passed), so episodes re-calibrate without re-recording.
+    """
     episode_dir = Path(episode_dir)
+    if calibration is None:
+        calibration = Calibration.for_episode(episode_dir, manifest)
     step = NS_PER_S / fps
 
     pose = _find(manifest, POSE6DOF, frame="world") or _find(manifest, POSE6DOF)
@@ -126,10 +147,11 @@ def build_timeline(manifest: Manifest, episode_dir: str | Path, fps: float = 30.
     g_quat = G.resample_quat(pt, quat, grid)
     g_track = track[_nearest(pt, grid)]
 
-    # gripper width (serial -> clock-corrected)
+    # gripper width (serial -> clock-corrected; recomputed from counts via calibration when possible)
     if state is not None:
         wt = _corrected_serial_times(episode_dir, state)
-        w = io.read_csv(episode_dir / state.file)["width_m"]
+        cols = io.read_csv(episode_dir / state.file)
+        w = _width_series(cols, calibration, len(wt))
         width = G.resample_linear(wt, w, grid)
     else:
         width = np.zeros(len(grid))

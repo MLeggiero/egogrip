@@ -18,9 +18,11 @@ namespace Egogrip
     /// capabilities.world_frame = "unity_y_up_lh"; the pipeline's geometry.from_unity normalizes
     /// it to canonical OpenXR (p'=(x,y,-z); q'=(-x,-y,z,w)) on import — no handedness math here.
     ///
-    /// TCP note: gripper_pose is meant to be controller→TCP (T_ctrl_gripper) already applied.
-    /// Until the gripper is built+calibrated that transform is identity, so this logs the raw
-    /// controller pose as the TCP stand-in (correct for proving capture).
+    /// TCP: gripper_pose is the controller pose with a fixed controller→TCP offset applied at
+    /// capture, so it records the real gripper tool-center pose directly. The offset comes from
+    /// capture_config.json (xr_pose.pose_offset), falling back to the Inspector fields; default is
+    /// identity. The applied offset is written into the manifest, so the raw controller pose stays
+    /// recoverable. See docs/CAPTURE_CONFIG.md.
     ///
     /// Setup: drop on a GameObject in a scene with the PICO XR rig active. Press either
     /// controller's primary button (A/X) to toggle recording, or call StartRecording()/Stop().
@@ -33,6 +35,15 @@ namespace Egogrip
             public XRNode node = XRNode.RightHand;
             [Tooltip("Episode CSV + manifest stream id. Right is conventionally 'gripper_pose'.")]
             public string streamId = "gripper_pose";
+
+            [Tooltip("Inspector default controller->TCP offset (metres, controller-local). " +
+                     "capture_config.json's xr_pose.pose_offset overrides this at record time.")]
+            public Vector3 poseOffsetTranslation = Vector3.zero;
+            [Tooltip("Inspector default rotation offset, degrees [rx,ry,rz] applied as Rz*Ry*Rx.")]
+            public Vector3 poseOffsetEulerDeg = Vector3.zero;
+
+            [System.NonSerialized] public Vector3 offsetTranslation = Vector3.zero;
+            [System.NonSerialized] public Quaternion offsetRot = Quaternion.identity;
             [System.NonSerialized] public StreamWriter csv;
             [System.NonSerialized] public int count;
             [System.NonSerialized] public bool prevButton;
@@ -109,10 +120,14 @@ namespace Egogrip
                 int track = dev.TryGetFeatureValue(CommonUsages.isTracked, out bool tracked) && tracked ? 1 : 0;
                 c.lastTracked = track;
 
+                // controller pose -> gripper TCP: p' = p + q*tOff ; q' = q * qOff (local offset)
+                Vector3 pt = p + q * c.offsetTranslation;
+                Quaternion qt = q * c.offsetRot;
+
                 long t = EgogripClock.NowNs();
                 c.csv.WriteLine(string.Format(CultureInfo.InvariantCulture,
                     "{0},{1:G9},{2:G9},{3:G9},{4:G9},{5:G9},{6:G9},{7:G9},{8}",
-                    t, p.x, p.y, p.z, q.x, q.y, q.z, q.w, track));
+                    t, pt.x, pt.y, pt.z, qt.x, qt.y, qt.z, qt.w, track));
                 c.count++;
                 if (c.count % 60 == 0) c.csv.Flush();
                 _stopNs = t;
@@ -130,8 +145,24 @@ namespace Egogrip
             string id = System.DateTime.Now.ToString("yyyy-MM-dd'T'HH-mm-ss") + "_unity";
             _episodeDir = Path.Combine(Application.persistentDataPath, "episodes", id);
             Directory.CreateDirectory(_episodeDir);
+            var cfg = EgogripCaptureConfig.Load();
+            Debug.Log(cfg != null
+                ? $"egogrip: capture_config.json loaded ({(cfg.sensors != null ? cfg.sensors.Length : 0)} sensors)"
+                : "egogrip: no capture_config.json — using Inspector pose offsets");
             foreach (var c in controllers)
             {
+                // resolve controller->TCP offset: Inspector default, overridden by config xr_pose
+                c.offsetTranslation = c.poseOffsetTranslation;
+                c.offsetRot = EgogripCaptureConfig.EulerOffset(
+                    c.poseOffsetEulerDeg.x, c.poseOffsetEulerDeg.y, c.poseOffsetEulerDeg.z);
+                var sensor = FindXrPose(cfg, c.node);
+                if (sensor != null)
+                {
+                    if (!string.IsNullOrEmpty(sensor.stream_id)) c.streamId = sensor.stream_id;
+                    if (sensor.pose_offset != null)
+                        EgogripCaptureConfig.ResolvePoseOffset(
+                            sensor.pose_offset, out c.offsetTranslation, out c.offsetRot);
+                }
                 c.csv = new StreamWriter(Path.Combine(_episodeDir, c.streamId + ".csv"));
                 c.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
                 c.count = 0;
@@ -157,15 +188,37 @@ namespace Egogrip
         private void OnDestroy() { if (_recording) StopRecording(); }
         private void OnApplicationPause(bool paused) { if (paused && _recording) StopRecording(); }
 
+        // Map a controller XRNode to the matching enabled xr_pose sensor in capture_config.json.
+        private static EgogripCaptureConfig.Sensor FindXrPose(EgogripCaptureConfig.Root cfg, XRNode node)
+        {
+            if (cfg == null || cfg.sensors == null) return null;
+            string want = node == XRNode.LeftHand ? "left_hand"
+                        : node == XRNode.RightHand ? "right_hand"
+                        : node == XRNode.Head ? "head" : null;
+            if (want == null) return null;
+            foreach (var s in cfg.sensors)
+                if (s != null && s.enabled && s.type == "xr_pose" && s.node == want) return s;
+            return null;
+        }
+
         private string BuildManifest(string extraStream)
         {
             string id = Path.GetFileName(_episodeDir);
 
             var entries = new List<string>();
             foreach (var c in controllers)
+            {
+                Vector3 ot = c.offsetTranslation;
+                Quaternion oq = c.offsetRot;
+                string off = string.Format(CultureInfo.InvariantCulture,
+                    "\"pose_offset\": {{\"translation_m\": [{0:G9}, {1:G9}, {2:G9}], " +
+                    "\"rotation_quat_xyzw\": [{3:G9}, {4:G9}, {5:G9}, {6:G9}]}}",
+                    ot.x, ot.y, ot.z, oq.x, oq.y, oq.z, oq.w);
                 entries.Add("    {\"id\": \"" + c.streamId + "\", \"kind\": \"pose6dof\", \"file\": \"" +
                             c.streamId + ".csv\", \"timestamp_field\": \"monotonic_ns\", " +
-                            "\"frame\": \"world\", \"units\": \"m\", \"sample_count\": " + c.count + "}");
+                            "\"frame\": \"world\", \"units\": \"m\", \"sample_count\": " + c.count +
+                            ", " + off + "}");
+            }
             if (!string.IsNullOrEmpty(extraStream))
                 entries.Add("    " + extraStream);
             string streams = string.Join(",\n", entries) + "\n";

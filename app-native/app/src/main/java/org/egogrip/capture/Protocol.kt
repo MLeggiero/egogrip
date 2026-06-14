@@ -10,7 +10,7 @@ package org.egogrip.capture
  * callbacks on that same thread. Bytes are buffered across reads, so split frames are fine.
  */
 class Protocol(
-    private val onState: (micros: Long, widthCounts: Int, trigger: Int) -> Unit,
+    private val onState: (micros: Long, rawCounts: Int, deltaCounts: Int, trigger: Int) -> Unit,
     private val onTactile: (micros: Long, channels: IntArray) -> Unit,
     private val onSync: (micros: Long, eventId: Long) -> Unit = { _, _ -> },
     private val onInfo: (text: String) -> Unit = {},
@@ -70,10 +70,11 @@ class Protocol(
             }
             val payloadStart = 9
             when (type) {
-                T_STATE -> if (len >= 5) {
-                    val counts = readI32(frame, payloadStart)
-                    val trig = u(frame[payloadStart + 4])
-                    onState(micros, counts, trig)
+                T_STATE -> if (len >= 7) {
+                    val raw = readU16(frame, payloadStart)
+                    val delta = readI32(frame, payloadStart + 2)
+                    val trig = u(frame[payloadStart + 6])
+                    onState(micros, raw, delta, trig)
                 }
                 T_TACTILE -> if (len >= 1) {
                     val n = u(frame[payloadStart])
@@ -100,4 +101,5 @@ class Protocol(
         val v = (u(b[o])) or (u(b[o + 1]) shl 8)
         return if (v >= 0x8000) v - 0x10000 else v
     }
+    private fun readU16(b: ByteArray, o: Int): Int = (u(b[o])) or (u(b[o + 1]) shl 8)
 }

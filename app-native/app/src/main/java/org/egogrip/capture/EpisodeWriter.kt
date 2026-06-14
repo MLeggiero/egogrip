@@ -21,9 +21,9 @@ import java.util.Locale
  */
 class EpisodeWriter(context: Context) {
 
-    // Placeholder width calibration: counts -> meters. Replace after the gripper is calibrated.
-    private val widthCountsFull = 4096.0
-    private val widthMetersFull = 0.08
+    // On-device width PREVIEW only (counts_per_mm); the pipeline recomputes the authoritative width
+    // from raw delta_counts + calibration.json (docs/CALIBRATION.md).
+    private val countsPerMm = 50.0
 
     val episodeId: String = SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss", Locale.US).format(Date()) + "_native"
     val dir: File = File(File(context.getExternalFilesDir(null), "episodes"), episodeId).apply { mkdirs() }
@@ -31,7 +31,8 @@ class EpisodeWriter(context: Context) {
     private val startNs = CaptureClock.nowNs()
     private var stopNs = startNs
 
-    private val stateCsv = open("gripper_state.csv", "monotonic_ns,mcu_micros,width_m,raw_counts,trigger")
+    private val stateCsv = open("gripper_state.csv",
+        "monotonic_ns,mcu_micros,raw_counts,delta_counts,width_preview_m,trigger")
     private val tactileWriterHeaderWritten = booleanArrayOf(false)
     private var tactileCsv: BufferedWriter? = null
     private var tactileChannels = 0
@@ -59,9 +60,10 @@ class EpisodeWriter(context: Context) {
     }
 
     @Synchronized
-    fun writeState(arrivalNs: Long, mcuMicros: Long, counts: Int, trigger: Int) {
-        val widthM = counts / widthCountsFull * widthMetersFull
-        stateCsv.write("$arrivalNs,$mcuMicros,$widthM,$counts,$trigger"); stateCsv.newLine()
+    fun writeState(arrivalNs: Long, mcuMicros: Long, rawCounts: Int, deltaCounts: Int, trigger: Int) {
+        val widthPreview = deltaCounts / countsPerMm / 1000.0  // preview only; pipeline is authoritative
+        stateCsv.write("$arrivalNs,$mcuMicros,$rawCounts,$deltaCounts,$widthPreview,$trigger")
+        stateCsv.newLine()
         stateCount++
         if (stateCount % 50 == 0) stateCsv.flush()
         stopNs = arrivalNs
