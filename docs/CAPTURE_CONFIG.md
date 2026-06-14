@@ -72,7 +72,7 @@ adb push configs/single_gripper.json \
 controller pose, so `gripper_pose.csv` is the real TCP — and the applied offset is written into the
 episode `manifest.json` (raw recoverable). With no config it falls back to the recorder's Inspector
 fields (identity by default). Wiring the cameras + serial sensors through the same config is the
-next step (the config-driven CaptureManager).
+next step (the config-driven CaptureManager). Full build + verify steps: [UNITY_STEPS.md](UNITY_STEPS.md).
 
 ## Validate
 
