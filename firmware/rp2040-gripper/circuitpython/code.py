@@ -3,7 +3,7 @@
 # No toolchain: flash CircuitPython UF2, drop this + boot.py onto CIRCUITPY.
 #
 # Frame: 0xAA 0x55 | type:u8 | seq:u8 | micros:u32(LE) | len:u8 | payload | crc8(type..payload)
-#   STATE(0x01):   width_counts:i32, trigger:u8
+#   STATE(0x01):   raw_counts:u16, delta_counts:i32, trigger:u8
 #   TACTILE(0x02): n:u8, n x i16
 #   SYNC(0x03):    event_id:u32
 #
@@ -93,7 +93,8 @@ def main():
             if DEBUG_ASCII:
                 serial.write(("STATE counts=%d trig=%d us=%d\r\n" % (counts, trig, micros())).encode())
             else:
-                send(0x01, struct.pack("<i", counts) + bytes([trig]))
+                raw = counts % 4096  # within-turn; pot is single-turn so delta == counts
+                send(0x01, struct.pack("<Hi", raw, counts) + bytes([trig]))
             next_state = now + state_dt
         if now >= next_tactile:
             ch = read_tactile(now)[:N_TACTILE]
