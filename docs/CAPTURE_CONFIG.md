@@ -56,6 +56,24 @@ directly**:
 - `"from_calibration": true` defers to `calibration.json`'s measured `T_ctrl_gripper` once the
   Phase-4 hand-eye calibration exists.
 
+## On the headset
+
+The app loads the config at record time via `EgogripCaptureConfig.Load()`
+([app/Assets/Egogrip/EgogripCaptureConfig.cs](../app/Assets/Egogrip/EgogripCaptureConfig.cs)),
+searching `Application.persistentDataPath` first, then StreamingAssets. Push your edited config to
+the device's app files dir:
+
+```bash
+adb push configs/single_gripper.json \
+  /sdcard/Android/data/<your.package.name>/files/capture_config.json
+```
+
+`EgogripPoseRecorder` reads the matching `xr_pose` sensor and applies its `pose_offset` to the live
+controller pose, so `gripper_pose.csv` is the real TCP — and the applied offset is written into the
+episode `manifest.json` (raw recoverable). With no config it falls back to the recorder's Inspector
+fields (identity by default). Wiring the cameras + serial sensors through the same config is the
+next step (the config-driven CaptureManager).
+
 ## Validate
 
 ```bash
