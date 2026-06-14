@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 430" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <pattern id="p30b" patternUnits="userSpaceOnUse" width="40" height="40" patternTransform="translate(20,0)">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#3b82f6" stroke-width="1.6"/>
+    </pattern>
+    <pattern id="p72t" patternUnits="userSpaceOnUse" width="16" height="40">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#0d9488" stroke-width="1.3"/>
+    </pattern>
+    <pattern id="p200g" patternUnits="userSpaceOnUse" width="6" height="40">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#16a34a" stroke-width="1.0"/>
+    </pattern>
+    <pattern id="p30p" patternUnits="userSpaceOnUse" width="40" height="40" patternTransform="translate(20,0)">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#a855f7" stroke-width="2.2"/>
+    </pattern>
+  </defs>
+
+  <rect x="0" y="0" width="1040" height="430" fill="#f8fafc"/>
+  <text x="520" y="30" text-anchor="middle" font-size="19" font-weight="700" fill="#0f172a">Multi-rate capture, one aligned timeline</text>
+  <text x="520" y="50" text-anchor="middle" font-size="12" fill="#475569">native sensor rates (top) are resampled to a common 30 Hz grid (bottom)</text>
+
+  <!-- vertical guide lines tying camera ticks to the aligned grid -->
+  <g stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3 4">
+    <line x1="180" y1="84" x2="180" y2="326"/>
+    <line x1="260" y1="84" x2="260" y2="326"/>
+    <line x1="340" y1="84" x2="340" y2="326"/>
+    <line x1="420" y1="84" x2="420" y2="326"/>
+    <line x1="500" y1="84" x2="500" y2="326"/>
+    <line x1="580" y1="84" x2="580" y2="326"/>
+    <line x1="660" y1="84" x2="660" y2="326"/>
+    <line x1="740" y1="84" x2="740" y2="326"/>
+    <line x1="820" y1="84" x2="820" y2="326"/>
+    <line x1="900" y1="84" x2="900" y2="326"/>
+    <line x1="980" y1="84" x2="980" y2="326"/>
+  </g>
+
+  <!-- lanes: bg then tick pattern -->
+  <text x="170" y="100" text-anchor="end" font-size="12" fill="#0f172a">ego RGB · 30 Hz</text>
+  <rect x="180" y="84" width="820" height="24" rx="3" fill="#eff6ff" stroke="#bfdbfe"/>
+  <rect x="180" y="84" width="820" height="24" rx="3" fill="url(#p30b)" stroke="#bfdbfe"/>
+
+  <text x="170" y="142" text-anchor="end" font-size="12" fill="#0f172a">wrist RGB · 30 Hz</text>
+  <rect x="180" y="126" width="820" height="24" rx="3" fill="#eff6ff" stroke="#bfdbfe"/>
+  <rect x="180" y="126" width="820" height="24" rx="3" fill="url(#p30b)" stroke="#bfdbfe"/>
+
+  <text x="170" y="184" text-anchor="end" font-size="12" fill="#0f172a">controller pose · 72 Hz</text>
+  <rect x="180" y="168" width="820" height="24" rx="3" fill="#f0fdfa" stroke="#99f6e4"/>
+  <rect x="180" y="168" width="820" height="24" rx="3" fill="url(#p72t)" stroke="#99f6e4"/>
+
+  <text x="170" y="226" text-anchor="end" font-size="12" fill="#0f172a">gripper width · 200 Hz</text>
+  <rect x="180" y="210" width="820" height="24" rx="3" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <rect x="180" y="210" width="820" height="24" rx="3" fill="url(#p200g)" stroke="#bbf7d0"/>
+
+  <!-- aligned grid lane -->
+  <text x="170" y="316" text-anchor="end" font-size="12" font-weight="700" fill="#6b21a8">aligned grid · 30 Hz</text>
+  <rect x="180" y="296" width="820" height="30" rx="4" fill="#faf5ff" stroke="#d8b4fe"/>
+  <rect x="180" y="296" width="820" height="30" rx="4" fill="url(#p30p)" stroke="#d8b4fe"/>
+
+  <!-- resample arrows -->
+  <path d="M420,234 L420,296" stroke="#475569" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#ar)"/>
+  <text x="426" y="270" font-size="10" fill="#334155">linear interp (scalars)</text>
+  <path d="M740,192 L740,296" stroke="#475569" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#ar)"/>
+  <text x="746" y="250" font-size="10" fill="#334155">slerp (rotation)</text>
+  <path d="M580,108 L580,296" stroke="#475569" stroke-width="1.4" stroke-dasharray="4 3" fill="none" marker-end="url(#ar)"/>
+  <text x="586" y="160" font-size="10" fill="#334155">nearest frame (video)</text>
+
+  <!-- time axis -->
+  <line x1="180" y1="352" x2="1018" y2="352" stroke="#475569" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="590" y="372" text-anchor="middle" font-size="11.5" fill="#334155">device monotonic clock  ->  time</text>
+
+  <text x="520" y="404" text-anchor="middle" font-size="11.5" fill="#334155">Each stream keeps its own rate and shares one clock; the pipeline resamples all of them onto the 30 Hz grid. Timestamps are the source of truth.</text>
+</svg>

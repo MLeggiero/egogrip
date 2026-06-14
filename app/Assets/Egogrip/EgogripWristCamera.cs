@@ -83,10 +83,18 @@ namespace Egogrip
                 return "";
             }
         }
+
+        // --- live preview (RGBA frame for EgogripCameraPreview) ---
+        public byte[] LatestFrame() { try { return _cam?.Call<byte[]>("latestFrame"); } catch { return null; } }
+        public int PreviewWidth()  { try { return _cam == null ? 0 : _cam.Call<int>("previewWidth"); } catch { return 0; } }
+        public int PreviewHeight() { try { return _cam == null ? 0 : _cam.Call<int>("previewHeight"); } catch { return 0; } }
 #else
         // Editor / non-Android stubs.
         public bool StartInto(string episodeDir) => false;
         public string Stop() => "";
+        public byte[] LatestFrame() => null;
+        public int PreviewWidth() => 0;
+        public int PreviewHeight() => 0;
 #endif
     }
 }

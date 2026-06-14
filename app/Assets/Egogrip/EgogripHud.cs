@@ -27,11 +27,13 @@ namespace Egogrip
 
         private TextMesh _text;
         private EgogripPoseRecorder _recorder;
+        private EgogripWristCamera _cam;
         private readonly List<InputDevice> _devs = new List<InputDevice>();
 
         private void Start()
         {
             _recorder = Object.FindFirstObjectByType<EgogripPoseRecorder>();
+            _cam = Object.FindFirstObjectByType<EgogripWristCamera>();
 
             var go = new GameObject("EgogripHUD");
             var cam = Camera.main;
@@ -79,6 +81,8 @@ namespace Egogrip
                 string label = hand == XRNode.RightHand ? "R" : hand == XRNode.LeftHand ? "L" : hand.ToString();
                 sb.Append($"{label} trk={(tracked ? 1 : 0)}  p({p.x,6:F2},{p.y,6:F2},{p.z,6:F2})\n");
             }
+            if (_cam != null)
+                sb.Append($"cam: {(_cam.Active ? "ON (UVC seen)" : "off (no UVC / RealSense needs librealsense)")}\n");
             sb.Append("press A / X to start-stop");
 
             _text.color = !anyTracked ? Color.red : (rec ? Color.green : Color.white);
