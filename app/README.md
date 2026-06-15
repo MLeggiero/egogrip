@@ -5,8 +5,27 @@ XR session (controller / hand / head pose via the PICO Integration SDK, ego RGB 
 enterprise camera API) and calls the [native AAR plugin](../native-plugin/) for USB cameras
 and serial.
 
-> Status: scaffold (this README is the build spec). The Unity project files are intentionally
-> not committed yet — see [../docs/ROADMAP.md](../docs/ROADMAP.md) Phase 1–2.
+> Status: the Unity project **is** committed (scene, scripts, ProjectSettings, Packages). One thing
+> is **not** in git: the PICO Unity Integration SDK (~300 MB, proprietary) — you re-add it after
+> cloning (see **Open the cloned project** below). The egogrip C#/Kotlin is reviewed but built only
+> on a machine with Unity + the Android SDK ([../docs/UNITY_STEPS.md](../docs/UNITY_STEPS.md)).
+
+## Open the cloned project
+
+Unity Hub gates on the exact editor version and the project needs the PICO SDK re-added, so a fresh
+clone won't open until you do these three things:
+
+1. **Install Unity `6000.4.10f1`** (the version in `ProjectSettings/ProjectVersion.txt`) via Unity
+   Hub, with **Android Build Support** (SDK & NDK + OpenJDK). Hub won't open the project on a
+   different version without an upgrade prompt.
+2. **Re-add the PICO Unity Integration SDK (v3.4.0).** Download it from PICO and unzip it into
+   **`app/Packages/com.unity.xr.picoxr/`** so that `app/Packages/com.unity.xr.picoxr/package.json`
+   exists. It's gitignored, so it stays out of commits. Without it Unity opens in **Safe Mode** with
+   PXR compile errors.
+3. **Open the `app/` folder** in Unity Hub (▸ *Add* ▸ select `egogrip/app`) — **not** the repo root.
+
+✓ Check: Package Manager ▸ *In Project* lists `com.unity.xr.picoxr`, the **PICO** menu appears, and
+the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SETUP.md](../docs/UNITY_POSE_SETUP.md).
 
 ## What the app does
 - **Capture orchestration** (`CaptureManager`): establishes the single monotonic clock origin,

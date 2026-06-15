@@ -30,11 +30,11 @@ app/.vsconfig
 # Unity-generated signing key — never commit a keystore
 app/user.keystore
 app/*.keystore
-# stray extracted SDK archives
+# PICO Unity Integration SDK (~300 MB, proprietary) — NOT committed. After cloning, unzip the
+# downloaded SDK (v3.4.0) into app/Packages/com.unity.xr.picoxr/ so its package.json sits there;
+# Unity loads it as an embedded package (see docs/UNITY_POSE_SETUP.md and app/Packages/PICOXR_SDK_REQUIRED.md).
+# The first pattern also ignores stray extracted SDK archive folders left elsewhere under app/.
 app/PICO Unity Integration SDK*/
-# Vendored PICO Unity Integration SDK (proprietary, ~300 MB) — NOT committed.
-# Re-add by copying the downloaded SDK into app/Packages/com.unity.xr.picoxr/
-# (see docs/UNITY_POSE_SETUP.md). Unity auto-detects it as an embedded package.
 app/Packages/com.unity.xr.picoxr/
 
 # --- Android / Gradle (native-plugin, app build) ---
