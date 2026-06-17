@@ -1,8 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Declared here so they MERGE into any consuming app (the Unity APK) automatically — no need
      to hand-edit Unity's manifest. CAMERA = UVC capture; usb.host = external USB devices. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- PICO 4 Ultra / Horizon OS entitlement that exposes an external USB camera to Camera2.
+         EgoKit declares this; without it openCamera() on the LENS_FACING_EXTERNAL id is denied. -->
+    <uses-permission android:name="horizonos.permission.USB_CAMERA" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.camera.external" android:required="false" />
+
+    <!-- Merge a USB_DEVICE_ATTACHED intent-filter + device_filter onto Unity's launcher activity so
+         attaching a UVC camera auto-grants USB permission (with the user's one-time "always" tick)
+         and can auto-launch the app. Merged by android name into the consuming Unity APK. -->
+    <application>
+        <activity android:name="com.unity3d.player.UnityPlayerActivity" tools:node="merge">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+        </activity>
+    </application>
 </manifest>

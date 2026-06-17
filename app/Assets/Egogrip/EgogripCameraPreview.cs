@@ -16,9 +16,10 @@ namespace Egogrip
         public EgogripWristCamera cam;
         [Tooltip("Preview refresh rate (Hz). The camera still records every frame regardless.")]
         public float previewHz = 15f;
-        [Tooltip("Panel position relative to the camera: right, up, forward (metres).")]
-        public Vector3 localOffset = new Vector3(0.32f, -0.08f, 0.7f);
-        public float panelWidth = 0.45f;
+        [Tooltip("Panel position relative to the camera: right, up, forward (metres). Lower-right so it " +
+                 "clears the HUD pose text (which sits on the left).")]
+        public Vector3 localOffset = new Vector3(0.55f, -0.28f, 0.8f);
+        public float panelWidth = 0.38f;
 
         private Texture2D _tex;
         private Renderer _quad;

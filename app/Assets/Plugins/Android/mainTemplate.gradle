@@ -4,7 +4,12 @@ apply from: '../shared/common.gradle'
 **APPLY_PLUGINS**
 
 dependencies {
-    implementation 'com.herohan:UVCAndroid:1.0.4'
+    // egogrip-capture.aar is written in Kotlin; Unity's Gradle build doesn't apply the Kotlin
+    // plugin, so the stdlib must be declared explicitly or EgogripCamera throws
+    // NoClassDefFoundError: kotlin.jvm.internal.Intrinsics at runtime. Version matches the
+    // capture module (app-native, kotlin.android 1.9.24).
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+    implementation 'com.herohan:UVCAndroid:1.0.9'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 **DEPS**}
 

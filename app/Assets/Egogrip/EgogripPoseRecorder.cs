@@ -47,6 +47,7 @@ namespace Egogrip
             [System.NonSerialized] public StreamWriter csv;
             [System.NonSerialized] public int count;
             [System.NonSerialized] public bool prevButton;
+            [System.NonSerialized] public bool prevButton2;
             [System.NonSerialized] public int lastTracked;
         }
 
@@ -60,8 +61,36 @@ namespace Egogrip
         [Tooltip("Log pose to logcat at this rate (Hz). CSV always records every frame.")]
         public float logHz = 5f;
 
+        [Header("Optional streams (HUD-toggleable)")]
+        [Tooltip("Also record the headset (head) 6-DoF pose → head_pose.csv. Toggle with B/Y while idle.")]
+        public bool recordHead = false;
+
+        public enum InputSource { Controllers, Hands }
+        [Tooltip("Pose source. Controllers = today. Hands = built-in hand tracking (see plan). " +
+                 "Shown in the HUD; hand capture is the next milestone.")]
+        public InputSource inputSource = InputSource.Controllers;
+
         [Tooltip("Optional: a USB/UVC wrist camera (egogrip-capture.aar). Leave empty for pose-only.")]
         public EgogripWristCamera wristCamera;
+
+        [Tooltip("Optional: additional cameras (more wrist cams, an ego cam, etc.). Give each a UNIQUE " +
+                 "streamId; each auto-binds to a different physical USB camera. Add one component per camera.")]
+        public EgogripWristCamera[] extraCameras;
+
+        // wristCamera + extraCameras, non-null and de-duplicated — the full set we drive.
+        private IEnumerable<EgogripWristCamera> AllCameras()
+        {
+            if (wristCamera != null) yield return wristCamera;
+            if (extraCameras != null)
+                foreach (var c in extraCameras)
+                    if (c != null && c != wristCamera) yield return c;
+        }
+
+        // head pose stream (XRNode.Head → head_pose.csv); included when recordHead is on at record start
+        private readonly ControllerStream _head = new ControllerStream { node = XRNode.Head, streamId = "head_pose" };
+        // streams actually being recorded this episode = controllers (+ head). Snapshotted at start
+        // so toggling an option mid-recording can't desync the open CSVs.
+        private readonly List<ControllerStream> _active = new List<ControllerStream>();
 
         private string _episodeDir;
         private long _startNs, _stopNs;
@@ -102,40 +131,79 @@ namespace Egogrip
         {
             bool doLog = logHz > 0 && Time.realtimeSinceStartup - _lastLog >= 1f / logHz;
 
+            // ---- controller buttons: A/X toggles recording; B/Y toggles head-frame while idle ----
             foreach (var c in controllers)
             {
                 var dev = DeviceAt(c.node);
-
-                // toggle recording on the rising edge of either controller's primary button
                 if (dev.isValid && dev.TryGetFeatureValue(CommonUsages.primaryButton, out bool btn))
                 {
                     if (btn && !c.prevButton) { if (_recording) StopRecording(); else StartRecording(); }
                     c.prevButton = btn;
                 }
+                if (dev.isValid && dev.TryGetFeatureValue(CommonUsages.secondaryButton, out bool btn2))
+                {
+                    if (btn2 && !c.prevButton2 && !_recording)
+                    {
+                        recordHead = !recordHead;
+                        Debug.Log($"egogrip: recordHead={recordHead}");
+                    }
+                    c.prevButton2 = btn2;
+                }
+            }
 
-                if (!_recording || !dev.isValid || c.csv == null) continue;
-
-                dev.TryGetFeatureValue(CommonUsages.devicePosition, out Vector3 p);
-                dev.TryGetFeatureValue(CommonUsages.deviceRotation, out Quaternion q);
-                int track = dev.TryGetFeatureValue(CommonUsages.isTracked, out bool tracked) && tracked ? 1 : 0;
-                c.lastTracked = track;
-
-                // controller pose -> gripper TCP: p' = p + q*tOff ; q' = q * qOff (local offset)
-                Vector3 pt = p + q * c.offsetTranslation;
-                Quaternion qt = q * c.offsetRot;
-
+            // ---- write the active pose streams (controllers + optional head) while recording ----
+            if (_recording)
+            {
                 long t = EgogripClock.NowNs();
-                c.csv.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                    "{0},{1:G9},{2:G9},{3:G9},{4:G9},{5:G9},{6:G9},{7:G9},{8}",
-                    t, pt.x, pt.y, pt.z, qt.x, qt.y, qt.z, qt.w, track));
-                c.count++;
-                if (c.count % 60 == 0) c.csv.Flush();
-                _stopNs = t;
-
-                if (doLog)
-                    Debug.Log($"egogrip: pose[{c.node}] t={t} p=({p.x:F3},{p.y:F3},{p.z:F3}) tracked={track} n={c.count}");
+                foreach (var c in _active)
+                {
+                    if (c.csv == null || !ReadPose(c, out Vector3 p, out Quaternion q, out int track)) continue;
+                    c.lastTracked = track;
+                    // pose -> TCP: p' = p + q*tOff ; q' = q * qOff (local offset; identity for head)
+                    Vector3 pt = p + q * c.offsetTranslation;
+                    Quaternion qt = q * c.offsetRot;
+                    c.csv.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                        "{0},{1:G9},{2:G9},{3:G9},{4:G9},{5:G9},{6:G9},{7:G9},{8}",
+                        t, pt.x, pt.y, pt.z, qt.x, qt.y, qt.z, qt.w, track));
+                    c.count++;
+                    if (c.count % 60 == 0) c.csv.Flush();
+                    _stopNs = t;
+                    if (doLog)
+                        Debug.Log($"egogrip: pose[{c.node}] t={t} p=({p.x:F3},{p.y:F3},{p.z:F3}) tracked={track} n={c.count}");
+                }
             }
             if (doLog) _lastLog = Time.realtimeSinceStartup;
+        }
+
+        // Read a stream's 6-DoF pose. Head/CenterEye use the centre-eye usages (fall back to device);
+        // controllers/hands use the device usages. Returns false if no valid device at that node.
+        private bool ReadPose(ControllerStream c, out Vector3 p, out Quaternion q, out int track)
+        {
+            p = Vector3.zero; q = Quaternion.identity; track = 0;
+            var dev = DeviceAt(c.node);
+            if (!dev.isValid) return false;
+            if (c.node == XRNode.Head || c.node == XRNode.CenterEye)
+            {
+                if (!dev.TryGetFeatureValue(CommonUsages.centerEyePosition, out p))
+                    dev.TryGetFeatureValue(CommonUsages.devicePosition, out p);
+                if (!dev.TryGetFeatureValue(CommonUsages.centerEyeRotation, out q))
+                    dev.TryGetFeatureValue(CommonUsages.deviceRotation, out q);
+            }
+            else
+            {
+                dev.TryGetFeatureValue(CommonUsages.devicePosition, out p);
+                dev.TryGetFeatureValue(CommonUsages.deviceRotation, out q);
+            }
+            track = dev.TryGetFeatureValue(CommonUsages.isTracked, out bool t) && t ? 1 : 0;
+            return true;
+        }
+
+        // Snapshot the streams to record this episode: controllers + head (if enabled).
+        private void BuildActive()
+        {
+            _active.Clear();
+            foreach (var c in controllers) _active.Add(c);
+            if (recordHead) _active.Add(_head);
         }
 
         public void StartRecording()
@@ -149,7 +217,8 @@ namespace Egogrip
             Debug.Log(cfg != null
                 ? $"egogrip: capture_config.json loaded ({(cfg.sensors != null ? cfg.sensors.Length : 0)} sensors)"
                 : "egogrip: no capture_config.json — using Inspector pose offsets");
-            foreach (var c in controllers)
+            BuildActive();
+            foreach (var c in _active)
             {
                 // resolve controller->TCP offset: Inspector default, overridden by config xr_pose
                 c.offsetTranslation = c.poseOffsetTranslation;
@@ -167,7 +236,7 @@ namespace Egogrip
                 c.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
                 c.count = 0;
             }
-            if (wristCamera != null) wristCamera.StartInto(_episodeDir);
+            foreach (var cam in AllCameras()) cam.StartInto(_episodeDir);
             _startNs = EgogripClock.NowNs();
             _stopNs = _startNs;
             _recording = true;
@@ -178,9 +247,14 @@ namespace Egogrip
         {
             if (!_recording) return;
             _recording = false;
-            foreach (var c in controllers) { c.csv?.Flush(); c.csv?.Close(); c.csv = null; }
-            string camStream = wristCamera != null ? wristCamera.Stop() : "";
-            File.WriteAllText(Path.Combine(_episodeDir, "manifest.json"), BuildManifest(camStream));
+            foreach (var c in _active) { c.csv?.Flush(); c.csv?.Close(); c.csv = null; }
+            var camStreams = new List<string>();
+            foreach (var cam in AllCameras())
+            {
+                string desc = cam.Stop();
+                if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
+            }
+            File.WriteAllText(Path.Combine(_episodeDir, "manifest.json"), BuildManifest(camStreams));
             Debug.Log($"egogrip: Saved → {_episodeDir}");
             Debug.Log($"egogrip: Pull: adb pull {_episodeDir}");
         }
@@ -201,12 +275,12 @@ namespace Egogrip
             return null;
         }
 
-        private string BuildManifest(string extraStream)
+        private string BuildManifest(List<string> camStreams)
         {
             string id = Path.GetFileName(_episodeDir);
 
             var entries = new List<string>();
-            foreach (var c in controllers)
+            foreach (var c in _active)
             {
                 Vector3 ot = c.offsetTranslation;
                 Quaternion oq = c.offsetRot;
@@ -219,8 +293,9 @@ namespace Egogrip
                             "\"frame\": \"world\", \"units\": \"m\", \"sample_count\": " + c.count +
                             ", " + off + "}");
             }
-            if (!string.IsNullOrEmpty(extraStream))
-                entries.Add("    " + extraStream);
+            if (camStreams != null)
+                foreach (var s in camStreams)
+                    if (!string.IsNullOrEmpty(s)) entries.Add("    " + s);
             string streams = string.Join(",\n", entries) + "\n";
 
             var sb = new StringBuilder();

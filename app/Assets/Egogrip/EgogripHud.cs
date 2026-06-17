@@ -81,9 +81,29 @@ namespace Egogrip
                 string label = hand == XRNode.RightHand ? "R" : hand == XRNode.LeftHand ? "L" : hand.ToString();
                 sb.Append($"{label} trk={(tracked ? 1 : 0)}  p({p.x,6:F2},{p.y,6:F2},{p.z,6:F2})\n");
             }
+            // optional head frame: show its pose when enabled
+            if (_recorder != null && _recorder.recordHead)
+            {
+                InputDevices.GetDevicesAtXRNode(XRNode.CenterEye, _devs);
+                Vector3 hp = Vector3.zero; bool ht = false;
+                if (_devs.Count > 0)
+                {
+                    var d = _devs[0];
+                    if (!d.TryGetFeatureValue(CommonUsages.centerEyePosition, out hp))
+                        d.TryGetFeatureValue(CommonUsages.devicePosition, out hp);
+                    d.TryGetFeatureValue(CommonUsages.isTracked, out ht);
+                }
+                sb.Append($"H trk={(ht ? 1 : 0)}  p({hp.x,6:F2},{hp.y,6:F2},{hp.z,6:F2})\n");
+            }
+
             if (_cam != null)
                 sb.Append($"cam: {(_cam.Active ? "ON (UVC seen)" : "off (no UVC / RealSense needs librealsense)")}\n");
-            sb.Append("press A / X to start-stop");
+
+            // options + controls
+            string inp = _recorder != null ? _recorder.inputSource.ToString().ToLower() : "controllers";
+            bool head = _recorder != null && _recorder.recordHead;
+            sb.Append($"input: {inp}    head: {(head ? "ON" : "off")}\n");
+            sb.Append("A/X rec    B/Y head");
 
             _text.color = !anyTracked ? Color.red : (rec ? Color.green : Color.white);
             _text.text = sb.ToString();
