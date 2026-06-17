@@ -16,7 +16,9 @@ moving on. `adb` = `~/Android/Sdk/platform-tools/adb`.
 ## Stage A — controller pose only (today)
 
 ### 0. Unity install prerequisites
-- Unity **2022.3 LTS**. In **Unity Hub ▸ Installs ▸ your editor ▸ gear ▸ Add Modules**, make sure
+- Unity **6000.4.10f1** — the exact version this project targets
+  (`app/ProjectSettings/ProjectVersion.txt`); Unity Hub will not open the project unless that
+  version is installed. In **Unity Hub ▸ Installs ▸ your editor ▸ gear ▸ Add Modules**, make sure
   these are ticked: **Android Build Support**, **Android SDK & NDK Tools**, **OpenJDK**.
 - **✓ Check:** in the editor, `Edit ▸ Preferences ▸ External Tools` shows JDK / Android SDK / NDK
   paths filled in (use the Unity-bundled ones).
@@ -34,8 +36,11 @@ moving on. `adb` = `~/Android/Sdk/platform-tools/adb`.
 - **✓ Check:** both appear under Package Manager ▸ *In Project*.
 
 > **Note on the SDK in git:** the PICO Unity Integration SDK (~300 MB, proprietary) is **not**
-> committed. After cloning, re-add it by copying the downloaded SDK folder into
-> `app/Packages/com.unity.xr.picoxr/` — Unity auto-detects it as an embedded package.
+> committed. After cloning, unzip the downloaded SDK (**v3.4.0**) into
+> `app/Packages/com.unity.xr.picoxr/` so its `package.json` sits directly in that folder — Unity
+> loads it as an embedded package and resolves `com.unity.xr.picoxr`. Without it the project opens
+> in **Safe Mode** with PXR compile errors. (`Packages/manifest.json` + `packages-lock.json` both
+> reference `file:com.unity.xr.picoxr`.)
 
 ### 3. Import the PICO Unity Integration SDK
 - `Assets ▸ Import Package ▸ Custom Package…` ▸ select the `.unitypackage` you downloaded ▸
