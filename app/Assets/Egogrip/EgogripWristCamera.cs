@@ -26,6 +26,22 @@ namespace Egogrip
         public string streamId = "wrist0";
         public int fps = 30;
 
+        [Tooltip("When false this camera is skipped by recording and its USB device is released " +
+                 "(freeing hub bandwidth). Toggled from the in-VR panel while idle; see EgogripHud.")]
+        public bool captureEnabled = true;
+
+        /// <summary>Turn this camera's capture on/off. Off closes the device (releases the USB port);
+        /// on reopens the live preview. Recording skips disabled cameras (EgogripPoseRecorder).</summary>
+        public void SetCaptureEnabled(bool on)
+        {
+            if (captureEnabled == on) return;
+            captureEnabled = on;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (on) OpenPreview(); else Close();
+#endif
+            Debug.Log($"egogrip: wrist camera '{streamId}' capture {(on ? "ENABLED" : "DISABLED")}");
+        }
+
         /// <summary>True once a camera is open and frames are flowing (preview live).</summary>
         public bool Active
         {

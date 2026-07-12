@@ -1,18 +1,22 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.XR;
 
 namespace Egogrip
 {
     /// <summary>
-    /// Minimal always-visible in-VR HUD: floats the live controller pose + recording status as
-    /// world-space text anchored in front of the headset camera. No Canvas/TextMeshPro setup
-    /// needed — it builds a 3D TextMesh at runtime, so you just drop this component on any
-    /// GameObject (e.g. the EgogripRecorder object) and rebuild.
+    /// The in-VR status panel: a head-locked (camera-parented) panel showing recording state + timer,
+    /// per-stream health (controllers, head, wrist camera(s), ego camera), and device battery/storage,
+    /// plus warn-only pre-flight notices. Built entirely at runtime — a legacy <see cref="TextMesh"/>
+    /// with rich-text colour tags for the status dots, over a semi-transparent backing quad that
+    /// auto-sizes to the text so it stays legible against passthrough. No Canvas / TextMeshPro / scene
+    /// wiring: drop this on a GameObject (it's on EgogripRecorder) and rebuild.
     ///
-    /// This is the "see the data on screen" quick win. The full per-sensor health tiles + camera
-    /// preview come later with the AAR sensor framework (B3). Tweak Local Offset / Text Scale in
-    /// the Inspector if it's too big/small or poorly placed.
+    /// Warn-only: low storage / low battery / no tracking surface as red notices but never block
+    /// recording (recording is toggled by the controller A/X button in EgogripPoseRecorder).
+    ///
+    /// Tune Local Offset / Text Scale / Bg Padding in the Inspector for placement and size.
     /// </summary>
     public class EgogripHud : MonoBehaviour
     {
@@ -20,93 +24,260 @@ namespace Egogrip
         public XRNode[] hands = { XRNode.RightHand, XRNode.LeftHand };
 
         [Tooltip("Position relative to the camera: right, up, forward (metres).")]
-        public Vector3 localOffset = new Vector3(-0.18f, -0.12f, 0.6f);
+        public Vector3 localOffset = new Vector3(-0.28f, 0.02f, 0.75f);
 
-        [Tooltip("Overall size of the HUD text.")]
-        public float textScale = 0.004f;
+        [Tooltip("Overall size of the panel.")]
+        public float textScale = 0.0035f;
+
+        [Tooltip("Padding around the text for the backing panel, in text units.")]
+        public float bgPadding = 14f;
+
+        // Rich-text colours (hex, no alpha) for the status dots and notices.
+        private const string Green = "#39FF6A";
+        private const string Red = "#FF5A5A";
+        private const string Amber = "#FFC24B";
+        private const string Grey = "#8A8F98";
 
         private TextMesh _text;
+        private MeshFilter _textFilter;
+        private Transform _bg;
         private EgogripPoseRecorder _recorder;
-        private EgogripWristCamera _cam;
+        private readonly EgogripEgoCamera _ego = new EgogripEgoCamera();
+        private EgogripWristCamera[] _cams = System.Array.Empty<EgogripWristCamera>();
         private readonly List<InputDevice> _devs = new List<InputDevice>();
+
+        // Selection cursor over the toggleable USB cameras: thumbstick moves it, grip toggles.
+        private static readonly XRNode[] BothHands = { XRNode.RightHand, XRNode.LeftHand };
+        private int _cursor;
+        private bool _stickLatched, _prevGrip;
 
         private void Start()
         {
             _recorder = Object.FindFirstObjectByType<EgogripPoseRecorder>();
-            _cam = Object.FindFirstObjectByType<EgogripWristCamera>();
+            RefreshCameras();
 
-            var go = new GameObject("EgogripHUD");
+            // Root: head-locked anchor. Children live in "text units"; the root scale shrinks the whole
+            // panel to metres, so backing-quad layout can be done in the same units as the text mesh.
+            var root = new GameObject("EgogripHUD").transform;
             var cam = Camera.main;
             if (cam != null)
             {
-                go.transform.SetParent(cam.transform, false);
-                go.transform.localPosition = localOffset;
-                go.transform.localRotation = Quaternion.identity;
+                root.SetParent(cam.transform, false);
+                root.localPosition = localOffset;
+                root.localRotation = Quaternion.identity;
             }
-            go.transform.localScale = Vector3.one * textScale;
+            root.localScale = Vector3.one * textScale;
 
-            _text = go.AddComponent<TextMesh>();
+            // Backing panel (behind the text; +z is farther from the camera).
+            var bgGo = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            bgGo.name = "EgogripHUDBg";
+            var bgCol = bgGo.GetComponent<Collider>();
+            if (bgCol != null) Destroy(bgCol);
+            _bg = bgGo.transform;
+            _bg.SetParent(root, false);
+            _bg.localPosition = new Vector3(0f, 0f, 0.02f);
+            bgGo.GetComponent<Renderer>().material = MakePanelMaterial(new Color(0.03f, 0.04f, 0.06f, 0.62f));
+
+            // Text (rich-text status), anchored upper-left so it grows right/down from the origin.
+            var textGo = new GameObject("EgogripHUDText");
+            textGo.transform.SetParent(root, false);
+            _text = textGo.AddComponent<TextMesh>();
             _text.fontSize = 64;
+            _text.characterSize = 1f;
+            _text.richText = true;
             _text.anchor = TextAnchor.UpperLeft;
             _text.alignment = TextAlignment.Left;
+            _text.color = Color.white;
             var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             _text.font = font;
-            go.GetComponent<MeshRenderer>().material = font.material;
-            _text.text = "egogrip HUD starting…";
+            textGo.GetComponent<MeshRenderer>().material = font.material;
+            _textFilter = textGo.GetComponent<MeshFilter>();
+            _text.text = "egogrip starting…";
         }
+
+        // A semi-transparent unlit panel material (URP-correct transparency, works in the URP project).
+        private static Material MakePanelMaterial(Color c)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
+            var m = new Material(shader);
+            m.SetColor("_BaseColor", c);
+            m.color = c;
+            // URP transparent surface incantation.
+            m.SetFloat("_Surface", 1f);
+            m.SetFloat("_Blend", 0f);
+            m.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+            m.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+            m.SetInt("_ZWrite", 0);
+            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            m.renderQueue = (int)RenderQueue.Transparent;
+            return m;
+        }
+
+        private void RefreshCameras() =>
+            _cams = Object.FindObjectsByType<EgogripWristCamera>(FindObjectsSortMode.None);
+
+        private static string Dot(bool filled, string color) =>
+            $"<color={color}>{(filled ? "●" : "○")}</color>"; // ● / ○
 
         private void Update()
         {
             if (_text == null) return;
 
             bool rec = _recorder != null && _recorder.IsRecording;
-            bool anyTracked = false;
-
             var sb = new System.Text.StringBuilder();
-            sb.Append($"egogrip   {(rec ? "● REC" : "○ idle")}\n");
-            sb.Append(rec && _recorder != null ? $"ep {_recorder.CurrentEpisodeId}   n={_recorder.SampleCount}\n" : "\n");
+            var warnings = new List<string>();
 
+            // ---- status + timer ----
+            if (rec)
+            {
+                int secs = (int)_recorder.RecordingDurationSec;
+                sb.Append($"<color={Green}>● REC  {secs / 60:00}:{secs % 60:00}</color>\n");
+                sb.Append($"ep {_recorder.CurrentEpisodeId}\n");
+                sb.Append($"n={_recorder.SampleCount}\n\n");
+            }
+            else
+            {
+                sb.Append("○ IDLE\n\n\n\n");
+            }
+
+            // ---- selection cursor over the USB cameras (thumbstick to pick, grip to toggle) ----
+            HandleToggleInput(rec);
+
+            // ---- per-stream health (leading space keeps the cursor column aligned) ----
+            sb.Append("<color=" + Grey + ">STREAMS</color>\n");
+            bool anyTracked = false;
             foreach (var hand in hands)
             {
-                InputDevices.GetDevicesAtXRNode(hand, _devs);
-                bool have = _devs.Count > 0;
-                Vector3 p = Vector3.zero; bool tracked = false;
-                if (have)
-                {
-                    var d = _devs[0];
-                    d.TryGetFeatureValue(CommonUsages.devicePosition, out p);
-                    d.TryGetFeatureValue(CommonUsages.isTracked, out tracked);
-                }
+                bool tracked = ReadTracked(hand, out Vector3 p);
                 anyTracked |= tracked;
-                string label = hand == XRNode.RightHand ? "R" : hand == XRNode.LeftHand ? "L" : hand.ToString();
-                sb.Append($"{label} trk={(tracked ? 1 : 0)}  p({p.x,6:F2},{p.y,6:F2},{p.z,6:F2})\n");
+                string label = hand == XRNode.RightHand ? "R ctrl" : hand == XRNode.LeftHand ? "L ctrl" : hand.ToString();
+                sb.Append(tracked
+                    ? $" {Dot(true, Green)} {label}   p({p.x,5:F2},{p.y,5:F2},{p.z,5:F2})\n"
+                    : $" {Dot(false, Red)} {label}   <color={Red}>not tracked</color>\n");
             }
-            // optional head frame: show its pose when enabled
             if (_recorder != null && _recorder.recordHead)
             {
-                InputDevices.GetDevicesAtXRNode(XRNode.CenterEye, _devs);
-                Vector3 hp = Vector3.zero; bool ht = false;
-                if (_devs.Count > 0)
-                {
-                    var d = _devs[0];
-                    if (!d.TryGetFeatureValue(CommonUsages.centerEyePosition, out hp))
-                        d.TryGetFeatureValue(CommonUsages.devicePosition, out hp);
-                    d.TryGetFeatureValue(CommonUsages.isTracked, out ht);
-                }
-                sb.Append($"H trk={(ht ? 1 : 0)}  p({hp.x,6:F2},{hp.y,6:F2},{hp.z,6:F2})\n");
+                bool ht = ReadTracked(XRNode.CenterEye, out _);
+                sb.Append($" {Dot(ht, ht ? Green : Red)} head    {(ht ? "tracked" : "not tracked")}\n");
+            }
+            else
+            {
+                sb.Append($" {Dot(false, Grey)} head    <color={Grey}>off</color>\n");
             }
 
-            if (_cam != null)
-                sb.Append($"cam: {(_cam.Active ? "ON (UVC seen)" : "off (no UVC / RealSense needs librealsense)")}\n");
+            // wrist USB cameras — the toggleable set the cursor selects over.
+            if (_cams.Length == 0)
+                sb.Append($" {Dot(false, Grey)} wrist   <color={Grey}>none</color>\n");
+            for (int i = 0; i < _cams.Length; i++)
+            {
+                var cam = _cams[i];
+                if (cam == null) continue;
+                string cur = i == _cursor ? "►" : " ";
+                if (!cam.captureEnabled)
+                    sb.Append($"{cur}{Dot(false, Grey)} wrist {cam.streamId}  <color={Grey}>off</color>\n");
+                else
+                {
+                    bool on = cam.Active;
+                    string detail = on ? $"{cam.PreviewWidth()}x{cam.PreviewHeight()}" : "no signal";
+                    sb.Append($"{cur}{Dot(on, on ? Green : Red)} wrist {cam.streamId}  {detail}\n");
+                }
+            }
 
-            // options + controls
-            string inp = _recorder != null ? _recorder.inputSource.ToString().ToLower() : "controllers";
-            bool head = _recorder != null && _recorder.recordHead;
-            sb.Append($"input: {inp}    head: {(head ? "ON" : "off")}\n");
-            sb.Append("A/X rec    B/Y head");
+            // ego camera: live only once PICO enterprise access is granted (stub → "pending" today)
+            if (_ego.Available && _ego.Active)
+                sb.Append($" {Dot(true, Green)} ego     {_ego.PreviewWidth()}x{_ego.PreviewHeight()}\n");
+            else
+                sb.Append($" {Dot(false, Grey)} ego     <color={Grey}>enterprise: pending</color>\n");
 
-            _text.color = !anyTracked ? Color.red : (rec ? Color.green : Color.white);
+            // ---- device ----
+            sb.Append("\n<color=" + Grey + ">DEVICE</color>\n");
+            float bat = EgogripDeviceStatus.BatteryPercent();
+            long free = EgogripDeviceStatus.FreeBytes();
+            string batStr = bat < 0 ? "—" : $"{bat:F0}%{(EgogripDeviceStatus.Charging() ? "+" : "")}";
+            sb.Append($"bat {batStr}   free {EgogripDeviceStatus.FormatBytes(free)}\n");
+
+            // ---- warn-only notices ----
+            if (free >= 0 && free < EgogripDeviceStatus.LowStorageBytes) warnings.Add("storage low");
+            if (bat >= 0 && bat < EgogripDeviceStatus.LowBatteryPct && !EgogripDeviceStatus.Charging())
+                warnings.Add("battery low");
+            if (!anyTracked) warnings.Add("no controller tracked");
+            if (warnings.Count > 0)
+            {
+                sb.Append('\n');
+                foreach (var w in warnings) sb.Append($"<color={Amber}>[!] {w}</color>\n");
+            }
+
+            // ---- controls ----
+            sb.Append("\n<color=" + Grey + ">A/X rec   B/Y head</color>");
+            if (_cams.Length > 0)
+                sb.Append($"\n<color={Grey}>stick pick  grip {(rec ? "toggle (idle only)" : "toggle cam")}</color>");
+
             _text.text = sb.ToString();
+            FitPanel();
+        }
+
+        // Read whether the device at an XR node is tracked, plus its position.
+        private bool ReadTracked(XRNode node, out Vector3 p)
+        {
+            p = Vector3.zero;
+            InputDevices.GetDevicesAtXRNode(node, _devs);
+            if (_devs.Count == 0) return false;
+            var d = _devs[0];
+            if (node == XRNode.CenterEye || node == XRNode.Head)
+            {
+                if (!d.TryGetFeatureValue(CommonUsages.centerEyePosition, out p))
+                    d.TryGetFeatureValue(CommonUsages.devicePosition, out p);
+            }
+            else
+            {
+                d.TryGetFeatureValue(CommonUsages.devicePosition, out p);
+            }
+            return d.TryGetFeatureValue(CommonUsages.isTracked, out bool t) && t;
+        }
+
+        // Move the selection cursor over the USB cameras (thumbstick, edge-latched) and toggle the
+        // selected one with grip. Toggling is idle-only so it can't desync an open take's streams.
+        private void HandleToggleInput(bool recording)
+        {
+            int count = _cams.Length;
+            if (count == 0) return;
+
+            // strongest thumbstick across both controllers
+            Vector2 stick = Vector2.zero;
+            bool grip = false;
+            foreach (var node in BothHands)
+            {
+                InputDevices.GetDevicesAtXRNode(node, _devs);
+                if (_devs.Count == 0) continue;
+                var d = _devs[0];
+                if (d.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 v) && v.magnitude > stick.magnitude)
+                    stick = v;
+                if (d.TryGetFeatureValue(CommonUsages.gripButton, out bool g) && g) grip = true;
+            }
+
+            if (!_stickLatched && stick.y > 0.6f) { _cursor--; _stickLatched = true; }
+            else if (!_stickLatched && stick.y < -0.6f) { _cursor++; _stickLatched = true; }
+            else if (Mathf.Abs(stick.y) < 0.3f) _stickLatched = false;
+            _cursor = Mathf.Clamp(_cursor, 0, count - 1);
+
+            if (grip && !_prevGrip && !recording)
+            {
+                var cam = _cams[_cursor];
+                if (cam != null) cam.SetCaptureEnabled(!cam.captureEnabled);
+            }
+            _prevGrip = grip;
+        }
+
+        // Size + centre the backing quad to the current text mesh bounds (in text units).
+        private void FitPanel()
+        {
+            if (_bg == null || _textFilter == null) return;
+            var mesh = _textFilter.sharedMesh;
+            if (mesh == null) return;
+            var b = mesh.bounds;
+            if (b.size.x <= 0f || b.size.y <= 0f) return;
+            _bg.localScale = new Vector3(b.size.x + bgPadding * 2f, b.size.y + bgPadding * 2f, 1f);
+            _bg.localPosition = new Vector3(b.center.x, b.center.y, 0.02f);
         }
     }
 }

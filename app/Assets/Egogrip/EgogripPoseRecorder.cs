@@ -102,6 +102,10 @@ namespace Egogrip
         public int SampleCount => (controllers != null && controllers.Length > 0) ? controllers[0].count : 0;
         public string CurrentEpisodeId => _episodeDir != null ? Path.GetFileName(_episodeDir) : "(none)";
 
+        /// <summary>Seconds since the current take armed (on the shared monotonic clock), or 0 when idle.
+        /// Drives the HUD recording timer.</summary>
+        public double RecordingDurationSec => _recording ? (EgogripClock.NowNs() - _startNs) / 1e9 : 0.0;
+
         private void EnsureControllers()
         {
             if (controllers == null || controllers.Length == 0)
@@ -236,7 +240,8 @@ namespace Egogrip
                 c.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
                 c.count = 0;
             }
-            foreach (var cam in AllCameras()) cam.StartInto(_episodeDir);
+            foreach (var cam in AllCameras())
+                if (cam.captureEnabled) cam.StartInto(_episodeDir); // panel-toggled off → skipped this take
             _startNs = EgogripClock.NowNs();
             _stopNs = _startNs;
             _recording = true;
