@@ -55,6 +55,13 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
   `recording` state.
 - **N-extensible:** the capture config enumerates streams; a second gripper/camera/controller
   is config, not code (decision D9).
+- **Controller vs. hand tracking:** the HUD toggles the pose source (grip on the *INPUT* row, idle
+  only). *Controllers* records the 6-DoF `gripper_pose`; *Hands* records PICO 26-joint hand tracking
+  (`poses.jsonl`, `skeleton`) plus a derived wrist `gripper_pose` so the action stream is identical
+  either way. To activate hands on-device: set `handTracking: 1` in `PXR_ProjectSetting` (done) **and**
+  add the `EGOGRIP_PICO_HANDS` scripting define (Player ▸ Scripting Define Symbols), then confirm the
+  `PXR_HandTracking` calls in `EgogripHandTracker.cs` against your PICO SDK version. Without the
+  define the app still builds; Hands mode shows "build flag off" in the HUD.
 
 ## Not on the headset
 Dataset conversion (LeRobot) and training run **offline** in [../pipeline/](../pipeline/). The

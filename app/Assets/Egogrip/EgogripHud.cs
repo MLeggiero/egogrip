@@ -124,6 +124,7 @@ namespace Egogrip
             if (_text == null) return;
 
             bool rec = _recorder != null && _recorder.IsRecording;
+            bool handsMode = _recorder != null && _recorder.inputSource == EgogripPoseRecorder.InputSource.Hands;
             var sb = new System.Text.StringBuilder();
             var warnings = new List<string>();
 
@@ -140,8 +141,25 @@ namespace Egogrip
                 sb.Append("○ IDLE\n\n\n\n");
             }
 
-            // ---- selection cursor over the USB cameras (thumbstick to pick, grip to toggle) ----
+            // ---- selection cursor over [input mode, USB cameras] (thumbstick to pick, grip to toggle) ----
             HandleToggleInput(rec);
+
+            // ---- input mode (cursor target 0) ----
+            sb.Append("<color=" + Grey + ">INPUT</color>\n");
+            {
+                string cur = _cursor == 0 ? "►" : " ";
+                if (!handsMode)
+                    sb.Append($"{cur}{Dot(true, Green)} input: controllers\n");
+                else if (_recorder != null && !_recorder.HandTrackingCompiled)
+                    sb.Append($"{cur}{Dot(false, Amber)} input: hands  <color={Amber}>build flag off</color>\n");
+                else if (_recorder != null && !_recorder.HandTrackingAvailable)
+                    sb.Append($"{cur}{Dot(false, Amber)} input: hands  <color={Amber}>not tracked</color>\n");
+                else
+                {
+                    bool lh = _recorder.LeftHandTracked, rh = _recorder.RightHandTracked;
+                    sb.Append($"{cur}{Dot(true, Green)} input: hands  L{Dot(lh, lh ? Green : Red)} R{Dot(rh, rh ? Green : Red)}\n");
+                }
+            }
 
             // ---- per-stream health (leading space keeps the cursor column aligned) ----
             sb.Append("<color=" + Grey + ">STREAMS</color>\n");
@@ -172,7 +190,7 @@ namespace Egogrip
             {
                 var cam = _cams[i];
                 if (cam == null) continue;
-                string cur = i == _cursor ? "►" : " ";
+                string cur = i + 1 == _cursor ? "►" : " ";
                 if (!cam.captureEnabled)
                     sb.Append($"{cur}{Dot(false, Grey)} wrist {cam.streamId}  <color={Grey}>off</color>\n");
                 else
@@ -200,7 +218,9 @@ namespace Egogrip
             if (free >= 0 && free < EgogripDeviceStatus.LowStorageBytes) warnings.Add("storage low");
             if (bat >= 0 && bat < EgogripDeviceStatus.LowBatteryPct && !EgogripDeviceStatus.Charging())
                 warnings.Add("battery low");
-            if (!anyTracked) warnings.Add("no controller tracked");
+            if (!handsMode && !anyTracked) warnings.Add("no controller tracked");
+            if (handsMode && _recorder != null && _recorder.HandTrackingCompiled && !_recorder.HandTrackingAvailable)
+                warnings.Add("hands not tracked");
             if (warnings.Count > 0)
             {
                 sb.Append('\n');
@@ -209,8 +229,7 @@ namespace Egogrip
 
             // ---- controls ----
             sb.Append("\n<color=" + Grey + ">A/X rec   B/Y head</color>");
-            if (_cams.Length > 0)
-                sb.Append($"\n<color={Grey}>stick pick  grip {(rec ? "toggle (idle only)" : "toggle cam")}</color>");
+            sb.Append($"\n<color={Grey}>stick pick  grip {(rec ? "toggle (idle only)" : "toggle")}</color>");
 
             _text.text = sb.ToString();
             FitPanel();
@@ -239,8 +258,7 @@ namespace Egogrip
         // selected one with grip. Toggling is idle-only so it can't desync an open take's streams.
         private void HandleToggleInput(bool recording)
         {
-            int count = _cams.Length;
-            if (count == 0) return;
+            int count = 1 + _cams.Length; // cursor target 0 = input mode, 1..N = USB cameras
 
             // strongest thumbstick across both controllers
             Vector2 stick = Vector2.zero;
@@ -262,8 +280,12 @@ namespace Egogrip
 
             if (grip && !_prevGrip && !recording)
             {
-                var cam = _cams[_cursor];
-                if (cam != null) cam.SetCaptureEnabled(!cam.captureEnabled);
+                if (_cursor == 0) _recorder?.ToggleInputSource();
+                else
+                {
+                    var cam = _cams[_cursor - 1];
+                    if (cam != null) cam.SetCaptureEnabled(!cam.captureEnabled);
+                }
             }
             _prevGrip = grip;
         }
