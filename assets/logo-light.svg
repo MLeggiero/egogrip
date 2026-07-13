@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" font-family="Helvetica, Arial, sans-serif">
+  <!-- gripper mark (light, for dark backgrounds) -->
+  <g transform="translate(24,24) scale(1.2) translate(-80,-80)" fill="#f8fafc">
+    <rect x="80" y="80" width="96" height="26" rx="13"/>
+    <rect x="92" y="104" width="26" height="100" rx="13"/>
+    <rect x="138" y="104" width="26" height="100" rx="13"/>
+    <circle cx="128" cy="192" r="11"/>
+  </g>
+  <text x="170" y="140" font-size="120" font-weight="700" letter-spacing="-4" fill="#f8fafc">egogrip</text>
+</svg>

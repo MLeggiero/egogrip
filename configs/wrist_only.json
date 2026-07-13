@@ -1,0 +1,42 @@
+{
+  "format_version": "0.1.0",
+  "operator": "default",
+  "task_label": "wrist-only demo (no ego camera)",
+  "calibration_ref": "calibration.json",
+  "export": { "fps": 30.0 },
+  "sensors": [
+    {
+      "id": "wrist0",
+      "type": "uvc_camera",
+      "enabled": true,
+      "rate_hz": 30,
+      "stream_id": "wrist0",
+      "index": 0,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "codec": "h264",
+      "bitrate": 4000000
+    },
+    {
+      "id": "gripper_pose",
+      "type": "xr_pose",
+      "enabled": true,
+      "rate_hz": 72,
+      "node": "right_hand",
+      "stream_id": "gripper_pose",
+      "frame": "world",
+      "pose_offset": { "translation_m": [0.0, -0.02, -0.10] }
+    },
+    {
+      "id": "gripper",
+      "type": "rp2040_serial",
+      "enabled": true,
+      "usb": { "vid": "0x2E8A", "pid": "0x000A" },
+      "baud": 115200,
+      "streams": [
+        { "packet": "state", "stream_id": "gripper_state", "kind": "gripper_state" }
+      ]
+    }
+  ]
+}

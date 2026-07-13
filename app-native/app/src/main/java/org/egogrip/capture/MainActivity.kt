@@ -186,7 +186,7 @@ class MainActivity : Activity() {
         camera = Camera2Client(this, w.dir, onLog = { s -> runOnUiThread { log(s) } }).also { it.start() }
 
         val protocol = Protocol(
-            onState = { micros, counts, trig -> w.writeState(CaptureClock.nowNs(), micros, counts, trig) },
+            onState = { micros, raw, delta, trig -> w.writeState(CaptureClock.nowNs(), micros, raw, delta, trig) },
             onTactile = { micros, ch -> w.writeTactile(CaptureClock.nowNs(), micros, ch) },
             onSync = { _, id -> runOnUiThread { log("SYNC #$id") } },
             onInfo = { txt -> runOnUiThread { log("MCU: $txt") } },

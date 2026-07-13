@@ -37,6 +37,18 @@ egogrip-export   /path/to/episode_or_folder --out ./ds --fps 30 --action absolut
 egogrip-export   /path/to/ep --out ./ds --target lerobot   # Phase 6 (needs lerobot+video)
 ```
 
+## Inspect a raw episode in Rerun (QA before export)
+```bash
+pip install 'egogrip-pipeline[viz]'
+egogrip-viz /path/to/raw_episode                    # spawn the Rerun viewer
+egogrip-viz /path/to/raw_episode --save ep.rrd --no-spawn   # write a shareable recording (headless)
+egogrip-viz /path/to/raw_episode --stride 5         # subsample heavy streams for a quick look
+```
+Logs poses, 26-joint hands, camera cadence, tactile and gripper width onto **one `monotonic`
+timeline** so you can scrub everything time-aligned and reject bad episodes (dropouts, lost tracking,
+misalignment) before exporting. Reuses the same loaders as export — no change to the format. Exported
+**LeRobot** datasets are viewable directly via Rerun's built-in LeRobot importer.
+
 ## Layout
 - `egogrip_pipeline/schema.py` — dataclasses mirroring the manifest JSON Schema.
 - `egogrip_pipeline/geometry.py` — quaternion slerp, 6-D rotation, per-device frame converters.

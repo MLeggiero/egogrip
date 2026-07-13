@@ -1,0 +1,41 @@
+{
+  "format_version": "0.1.0",
+  "operator": "default",
+  "task_label": "bimanual demo (proves the N-sensor config)",
+  "calibration_ref": "calibration.json",
+  "export": { "fps": 30.0 },
+  "sensors": [
+    {
+      "id": "ego", "type": "ego_camera", "enabled": true, "rate_hz": 30,
+      "stream_id": "ego", "width": 1280, "height": 960, "fps": 30, "codec": "h264", "bitrate": 6000000
+    },
+    {
+      "id": "wrist_r", "type": "uvc_camera", "enabled": true, "rate_hz": 30,
+      "stream_id": "wrist_r", "index": 0, "width": 1280, "height": 720, "fps": 30, "codec": "h264", "bitrate": 4000000
+    },
+    {
+      "id": "wrist_l", "type": "uvc_camera", "enabled": true, "rate_hz": 30,
+      "stream_id": "wrist_l", "index": 1, "width": 1280, "height": 720, "fps": 30, "codec": "h264", "bitrate": 4000000
+    },
+    {
+      "id": "gripper_pose_r", "type": "xr_pose", "enabled": true, "rate_hz": 72,
+      "node": "right_hand", "stream_id": "gripper_pose", "frame": "world",
+      "pose_offset": { "translation_m": [0.0, -0.02, -0.10] }
+    },
+    {
+      "id": "gripper_pose_l", "type": "xr_pose", "enabled": true, "rate_hz": 72,
+      "node": "left_hand", "stream_id": "gripper_pose_left", "frame": "world",
+      "pose_offset": { "translation_m": [0.0, -0.02, -0.10] }
+    },
+    {
+      "id": "gripper_r", "type": "rp2040_serial", "enabled": true,
+      "usb": { "vid": "0x2E8A", "pid": "0x000A" }, "baud": 115200,
+      "streams": [ { "packet": "state", "stream_id": "gripper_state", "kind": "gripper_state" } ]
+    },
+    {
+      "id": "gripper_l", "type": "rp2040_serial", "enabled": true,
+      "usb": { "vid": "0x2E8A", "pid": "0x000B" }, "baud": 115200,
+      "streams": [ { "packet": "state", "stream_id": "gripper_state_left", "kind": "gripper_state" } ]
+    }
+  ]
+}

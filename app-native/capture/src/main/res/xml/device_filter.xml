@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- USB devices that egogrip claims. Matching one auto-grants USB permission (with the user's
+     one-time "always" tick) so libuvc can open it without a per-launch dialog. The specific
+     Arducam guarantees a match; the class entries catch other UVC webcams. -->
+<resources>
+    <usb-device vendor-id="3136" product-id="1425" /> <!-- Arducam-1080P-HDR (0x0C45:0x0591) -->
+    <usb-device class="239" subclass="2" />           <!-- Misc / IAD UVC composite -->
+    <usb-device class="14" />                          <!-- USB Video Class (UVC) -->
+</resources>

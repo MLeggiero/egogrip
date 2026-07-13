@@ -1,6 +1,11 @@
-# egogrip
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-light.svg">
+    <img src="assets/logo.svg" alt="egogrip" width="380">
+  </picture>
+</p>
 
-**A self-contained, headset-only data-collection system for robot learning.**
+<p align="center"><strong>A self-contained, headset-only data-collection system for robot learning.</strong></p>
 
 `egogrip` turns a **PICO 4 Ultra Enterprise** headset plus a hand-held **UMI-style mock
 gripper** into a portable, multimodal demonstration recorder. An operator wears the headset,
@@ -14,11 +19,32 @@ capture workflow) and [UMI](https://umi-gripper.github.io/) (the hand-held gripp
 action interface), and tries to fix their biggest gaps: **no tactile, no depth, no gripper
 state, and loose timing**.
 
-> Status: **scaffolding / planning**. This repo currently contains the architecture, the
-> data-format spec, the hardware BOM, and skeletons for each component. See
-> [docs/ROADMAP.md](docs/ROADMAP.md) for the phased build plan.
+> Status: **active build**. Architecture and the upgrade plan are locked
+> ([docs/UPGRADE_PLAN.md](docs/UPGRADE_PLAN.md)); a working offline pipeline, a native capture
+> spine, and reference firmware already exist. In progress: a JSON-driven sensor registry,
+> Arduino-Pico AS5600 gripper firmware, on-device ego/wrist video, and unification onto one
+> Unity-hosted app. See [docs/ROADMAP.md](docs/ROADMAP.md) for the phased build plan.
 
 ---
+
+## System data flow
+
+The whole system, from physical sensors to a trainable LeRobot dataset. Sensors connect over a
+powered USB-C hub (UVC cameras + the RP2040 gripper MCU over serial) or the XR runtime (controllers,
+enterprise ego camera). The on-headset app stamps every stream against **one monotonic clock** and
+writes a self-describing episode folder; an offline pipeline aligns and exports it. What gets
+recorded is driven entirely by an editable **`capture_config.json`**.
+
+![egogrip system data flow](docs/diagrams/system_dataflow.svg)
+
+Sensors record at **different native rates** and are never hardware-synced at capture time. Each
+sample is timestamped on the shared clock, and the pipeline resamples everything onto one uniform
+grid (default 30 Hz) — linear interpolation for scalars, slerp for rotation, nearest-frame for
+video. So a 30 Hz camera and a 200 Hz encoder line up with no special handling.
+
+![multi-rate capture resampled to one aligned timeline](docs/diagrams/sync_timeline.svg)
+
+> The diagrams are SVG (XML) under [docs/diagrams/](docs/diagrams/) — edit the source to update them.
 
 ## Why this exists
 
@@ -31,10 +57,10 @@ kits stop short of being directly trainable:
 | Wrist camera | ✅ (2×) | ✅ | ✅ (1×, schema supports N) |
 | Hand/head pose | ✅ | — | ✅ |
 | **Gripper 6-DoF pose** | ❌ | ✅ (SLAM, post-hoc) | ✅ (**controller on gripper, live**) |
-| **Gripper width (action)** | ❌ | ✅ | ✅ (encoder → MCU) |
+| **Gripper width (action)** | ❌ | ✅ | ✅ (AS5600 encoder → MCU) |
 | **Tactile** | ❌ | optional | ✅ (**pluggable**, MCU array reference) |
 | Depth | ❌ | mirror-stereo trick | ⚠️ investigating (PICO scene/iToF access is limited) |
-| Time sync | timestamps only | hardware-ish | shared monotonic clock + optional HW pulse |
+| Time sync | timestamps only | hardware-ish | one monotonic clock + offline resample |
 | Trainable output | raw MP4 + logs | UMI pipeline | **LeRobot exporter** |
 | Needs a PC to operate | no | yes (post) | **no — fully on-headset** |
 
@@ -72,39 +98,29 @@ egogrip/
 ├── app-native/        native Android (Kotlin) capture app — serial + episodes  [WORKING]
 ├── app/               Unity APK (in-VR GUI + pose + enterprise camera)  [scaffold]
 ├── native-plugin/     Android AAR: UVC cameras + USB-serial bridge      [scaffold]
-├── firmware/          RP2040 firmware — CircuitPython (flashable now) + C  [WORKING/scaffold]
+├── firmware/          RP2040 — CircuitPython ref [WORKING] + Arduino-Pico/AS5600 [building]
 ├── pipeline/          Python: raw capture → LeRobot dataset             [WORKING]
 ├── hardware/          mock-gripper CAD plan + BOM
-└── schema/            on-device raw capture format (JSON Schema)
+├── schema/            capture config + episode manifest formats (JSON Schema)
+└── configs/           ready-to-edit sensor registries (single / dual gripper)  [planned]
 ```
 
 ## How it fits together (one paragraph)
 
-The **gripper MCU** reads gripper width + tactile and streams them over **USB-serial** into a
-**powered USB-C hub**. A **wrist camera** (UVC) plugs into the same hub. The hub connects to
-the headset's single USB-C port (with PD pass-through so the headset charges while
-recording). The **APK** on the headset reads the **enterprise passthrough RGB** + **controller
-6-DoF pose** + **hand/head pose** internally, and the **wrist camera + serial** via the
-native plugin. Every sample is stamped against one monotonic clock and written to an
-**episode folder** on the headset. Later, the **pipeline** pulls episodes and exports a
-**LeRobot** dataset. Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+A single **`capture_config.json`** (a typed sensor registry) declares which sensors to record, so
+adding or retuning a sensor is a config edit, not a code change. The **gripper MCU** (RP2040 +
+**AS5600** magnetic encoder) streams gripper width over **USB-serial** into a **powered USB-C
+hub**; tactile is wired into the same protocol for later. A **wrist camera** (UVC) plugs into the
+same hub, which connects to the headset's single USB-C port (with PD pass-through so the headset
+charges while recording). The **APK** on the headset reads the **enterprise ego RGB** + **controller
+6-DoF pose** + **hand/head pose** internally, and the **wrist camera + serial** via the native
+plugin. Every sample is stamped against one monotonic clock and written to an **episode folder** on
+the headset. Later, the **pipeline** pulls episodes, resamples the streams onto one timeline, and
+exports a **LeRobot** dataset. Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Getting started
-
-**Recording on a PICO soon?** → [docs/PICO_TOMORROW.md](docs/PICO_TOMORROW.md) (install +
-sideload + flash the MCU) and [app-native/README.md](app-native/README.md).
-
-**Try the pipeline now (no hardware):**
-```bash
-cd pipeline && pip install -e . && egogrip-demo   # synth → validate → align → export
-```
-
-Then for the bigger picture:
-1. [docs/ROADMAP.md](docs/ROADMAP.md) / [docs/NATIVE_APP_PLAN.md](docs/NATIVE_APP_PLAN.md) — what to build, in order.
-2. [docs/HARDWARE.md](docs/HARDWARE.md) — order the BOM, build the rig.
-3. [docs/PICO_ENTERPRISE_NOTES.md](docs/PICO_ENTERPRISE_NOTES.md) — enroll for enterprise
+Download the latest .apk app file from app/Assets/Builds to the PICO 4 Ultra headset. Run the .apk application on your headset to install, and enjoy!
    camera access (the long-lead item).
-4. [docs/PORTABILITY.md](docs/PORTABILITY.md) — how other headsets/phones reuse all of this.
 
 ## License
 

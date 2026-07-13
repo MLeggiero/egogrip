@@ -126,3 +126,56 @@ FRAME_CONVERTERS = {
     "unity_y_up_lh": from_unity,
     "openxr_y_up_rh": from_openxr,
 }
+
+
+# --------------------------------------------------------------------------- pose offset
+# A fixed rigid transform (controller -> gripper TCP) applied to the live controller pose so the
+# recorded gripper_pose is the real tool-center pose. The capture app (Unity) applies the same math
+# at record time; these functions are the reference + let it be unit-tested. See docs/CAPTURE_CONFIG.md.
+
+
+def quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Hamilton product of xyzw quaternions (..., 4). Composes so R(a*b) == R(a) @ R(b)."""
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    ax, ay, az, aw = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    bx, by, bz, bw = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
+    return np.stack([
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ], axis=-1)
+
+
+def euler_deg_to_quat(euler_deg) -> np.ndarray:
+    """[rx, ry, rz] degrees -> xyzw quaternion for R = Rz @ Ry @ Rx (apply X, then Y, then Z about
+    the base axes). A human-friendly way to write a fixed offset in the config."""
+    rx, ry, rz = np.deg2rad(np.asarray(euler_deg, dtype=np.float64))
+
+    def axis_quat(angle: float, axis: int) -> np.ndarray:
+        q = np.zeros(4)
+        q[axis] = np.sin(angle / 2.0)
+        q[3] = np.cos(angle / 2.0)
+        return q
+
+    return normalize(quat_mul(axis_quat(rz, 2), quat_mul(axis_quat(ry, 1), axis_quat(rx, 0))))
+
+
+def compose_pose_offset(pos: np.ndarray, quat: np.ndarray, t_off, q_off
+                        ) -> tuple[np.ndarray, np.ndarray]:
+    """Apply a fixed local rigid offset to controller pose(s) -> gripper TCP pose(s).
+
+        p_tcp = p + R(q) @ t_off      q_tcp = q (x) q_off
+
+    pos:(N,3), quat:(N,4 xyzw) in some world frame; t_off:(3,), q_off:(4,) in the controller's
+    LOCAL frame. Rigid + invertible, so the raw controller pose stays recoverable from the result.
+    """
+    pos = np.atleast_2d(np.asarray(pos, dtype=np.float64))
+    quat = normalize(np.atleast_2d(quat))
+    t_off = np.asarray(t_off, dtype=np.float64).reshape(3)
+    q_off = normalize(np.asarray(q_off, dtype=np.float64).reshape(1, 4))
+    R = quat_to_matrix(quat)
+    tcp_pos = pos + np.einsum("nij,j->ni", R, t_off)
+    tcp_quat = normalize(quat_mul(quat, np.repeat(q_off, quat.shape[0], axis=0)))
+    return tcp_pos, tcp_quat

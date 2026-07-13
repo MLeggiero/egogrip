@@ -668,6 +668,7 @@ GameObject:
   - component: {fileID: 2070549116}
   - component: {fileID: 2070549117}
   - component: {fileID: 2070549118}
+  - component: {fileID: 2070549119}
   m_Layer: 0
   m_Name: EgogripRecorder
   m_TagString: Untagged
@@ -690,10 +691,14 @@ MonoBehaviour:
   controllers:
   - node: 5
     streamId: gripper_pose
+    poseOffsetTranslation: {x: 0, y: 0, z: 0}
+    poseOffsetEulerDeg: {x: 0, y: 0, z: 0}
   - node: 4
     streamId: gripper_pose_left
+    poseOffsetTranslation: {x: 0, y: 0, z: 0}
+    poseOffsetEulerDeg: {x: 0, y: 0, z: 0}
   logHz: 5
-  wristCamera: {fileID: 0}
+  wristCamera: {fileID: 2070549118}
 --- !u!4 &2070549115
 Transform:
   m_ObjectHideFlags: 0
@@ -751,6 +756,22 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Egogrip.EgogripWristCamera
   streamId: wrist0
   fps: 30
+--- !u!114 &2070549119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2070549113}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0f0b791f7829e7dce8325e9cad520b10, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Egogrip.EgogripCameraPreview
+  cam: {fileID: 0}
+  previewHz: 15
+  localOffset: {x: 0.55, y: -0.28, z: 0.8}
+  panelWidth: 0.38
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
