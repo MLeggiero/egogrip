@@ -18,12 +18,14 @@ dependencies = [
 validate = ["jsonschema>=4.0"]   # full schema validation (falls back to structural checks)
 lerobot = ["lerobot"]            # LeRobot v2 export target (pin once version is fixed)
 video = ["av>=11"]               # video transcode for LeRobot export (Phase 6)
+viz = ["rerun-sdk>=0.20"]        # optional: Rerun raw-episode QA viewer (egogrip-viz)
 dev = ["pytest>=7", "ruff>=0.4", "mypy>=1.8", "jsonschema>=4.0"]
 
 [project.scripts]
 egogrip-export = "egogrip_pipeline.export_lerobot:main"
 egogrip-validate = "egogrip_pipeline.validate:main"
 egogrip-demo = "egogrip_pipeline.demo:main"
+egogrip-viz = "egogrip_pipeline.rerun_viz:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
