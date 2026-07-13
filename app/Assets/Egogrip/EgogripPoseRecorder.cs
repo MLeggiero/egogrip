@@ -36,6 +36,10 @@ namespace Egogrip
             [Tooltip("Episode CSV + manifest stream id. Right is conventionally 'gripper_pose'.")]
             public string streamId = "gripper_pose";
 
+            [Tooltip("Pre-flight enable: when false this controller stream is skipped by recording and " +
+                     "absent from the manifest. Toggled from the HUD roster while idle.")]
+            public bool enabled = true;
+
             [Tooltip("Inspector default controller->TCP offset (metres, controller-local). " +
                      "capture_config.json's xr_pose.pose_offset overrides this at record time.")]
             public Vector3 poseOffsetTranslation = Vector3.zero;
@@ -132,6 +136,32 @@ namespace Egogrip
             Debug.Log($"egogrip: inputSource={inputSource}");
         }
 
+        // ---- pre-flight sensor roster (idle-only; the finalized manifest reflects the enabled set) ----
+
+        /// <summary>Enable/disable a controller's pose stream for the next take. Idle-only.</summary>
+        public void SetControllerEnabled(XRNode node, bool on)
+        {
+            if (_recording || controllers == null) return;
+            foreach (var c in controllers)
+                if (c.node == node) { c.enabled = on; Debug.Log($"egogrip: {node} pose {(on ? "ENABLED" : "DISABLED")}"); }
+        }
+
+        public bool GetControllerEnabled(XRNode node)
+        {
+            if (controllers != null)
+                foreach (var c in controllers)
+                    if (c.node == node) return c.enabled;
+            return false;
+        }
+
+        /// <summary>Enable/disable the head_pose stream for the next take. Idle-only.</summary>
+        public void SetHeadEnabled(bool on)
+        {
+            if (_recording) return;
+            recordHead = on;
+            Debug.Log($"egogrip: head pose {(on ? "ENABLED" : "DISABLED")}");
+        }
+
         private void EnsureControllers()
         {
             if (controllers == null || controllers.Length == 0)
@@ -161,7 +191,7 @@ namespace Egogrip
         {
             bool doLog = logHz > 0 && Time.realtimeSinceStartup - _lastLog >= 1f / logHz;
 
-            // ---- controller buttons: A/X toggles recording; B/Y toggles head-frame while idle ----
+            // ---- controller button: A/X toggles recording (head + sensor enables live in the HUD roster) ----
             foreach (var c in controllers)
             {
                 var dev = DeviceAt(c.node);
@@ -169,15 +199,6 @@ namespace Egogrip
                 {
                     if (btn && !c.prevButton) { if (_recording) StopRecording(); else StartRecording(); }
                     c.prevButton = btn;
-                }
-                if (dev.isValid && dev.TryGetFeatureValue(CommonUsages.secondaryButton, out bool btn2))
-                {
-                    if (btn2 && !c.prevButton2 && !_recording)
-                    {
-                        recordHead = !recordHead;
-                        Debug.Log($"egogrip: recordHead={recordHead}");
-                    }
-                    c.prevButton2 = btn2;
                 }
             }
 
@@ -303,7 +324,7 @@ namespace Egogrip
         private void BuildActive()
         {
             _active.Clear();
-            foreach (var c in controllers) _active.Add(c);
+            foreach (var c in controllers) if (c.enabled) _active.Add(c); // disabled → absent from episode + manifest
             if (recordHead) _active.Add(_head);
         }
 

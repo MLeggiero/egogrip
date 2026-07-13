@@ -32,13 +32,18 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
   opens all sources, fans samples into per-stream writers, finalizes `manifest.json`. Pose
   streams (controller→TCP, hands, head) are written directly from Unity; USB/serial go through
   the AAR. See [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
-- **In-VR GUI** (wrist-anchored panel, hands-busy friendly):
-  - Big **Start/Stop** (also bindable to a controller button / volume key like EgoKit).
-  - Recording **timer** + free **storage** + **battery**.
-  - **Per-stream health**: fps + green/red alive dot per stream; degraded streams turn red.
-  - **Single ego preview** + **last-episode review** (scrub, keep/delete). No full multi-cam
-    preview grid — too expensive in VR (see decision D7).
-  - **Pre-flight**: blocks arming if storage/battery low or a required stream is missing.
+- **In-VR GUI** (`EgogripHud`) — a code-generated, head-locked **uGUI Canvas + TextMeshPro** HUD in
+  **fixed zones** (nothing reflows when you toggle): status bar (REC/idle + timer + sample count),
+  **video zone** (ego + wrist camera feeds in fixed `RawImage` slots), a **sensor roster**, a signals
+  strip, and a device/warnings row. Warn-only (never blocks recording).
+  - **Controls:** `A/X` = record; **thumbstick** moves a highlight over the roster; **grip** toggles
+    the selected sensor (idle-only). Head is a roster row now (no more B/Y shortcut).
+  - **Pre-flight sensor roster:** input mode (controllers ↔ hands), controllers L/R, head, each wrist
+    camera — all individually on/off before a run, locked mid-run; the finalized `manifest.json`
+    reflects exactly the enabled set. Ego and tactile/gripper-serial appear as **pending** placeholders
+    until those paths land.
+  - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
+    Essential Resources* — without the import TMP renders nothing (layout is still correct).
 - **Calibration mode**: run/refresh `calibration.json`; quick "calibration check" before a
   session (see [../docs/HARDWARE.md](../docs/HARDWARE.md#calibration)).
 
