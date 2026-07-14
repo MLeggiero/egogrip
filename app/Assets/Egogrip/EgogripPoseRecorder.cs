@@ -85,13 +85,37 @@ namespace Egogrip
                  "streamId; each auto-binds to a different physical USB camera. Add one component per camera.")]
         public EgogripWristCamera[] extraCameras;
 
-        // wristCamera + extraCameras, non-null and de-duplicated — the full set we drive.
-        private IEnumerable<EgogripWristCamera> AllCameras()
+        [Tooltip("How many USB wrist cameras to run. On Start, spawns EgogripWristCamera instances up to " +
+                 "this count (wrist0, wrist1, …); each backend auto-claims a distinct USB device. No hard " +
+                 "cap — USB bandwidth is the real limit (~2 full-rate streams; more at lower res/fps).")]
+        public int numWristCameras = 2;
+
+        // Every EgogripWristCamera in the scene (serialized + spawned), cached at Start — the full set we drive.
+        private readonly List<EgogripWristCamera> _allCams = new List<EgogripWristCamera>();
+        private IEnumerable<EgogripWristCamera> AllCameras() => _allCams;
+
+        // Discover existing wrist cameras and spawn up to numWristCameras total, with unique wristN streamIds.
+        private void EnsureCameras()
         {
-            if (wristCamera != null) yield return wristCamera;
-            if (extraCameras != null)
-                foreach (var c in extraCameras)
-                    if (c != null && c != wristCamera) yield return c;
+            _allCams.Clear();
+            _allCams.AddRange(Object.FindObjectsByType<EgogripWristCamera>(FindObjectsSortMode.None));
+
+            var used = new HashSet<string>();
+            foreach (var c in _allCams) if (!string.IsNullOrEmpty(c.streamId)) used.Add(c.streamId);
+
+            int next = 0;
+            while (_allCams.Count < numWristCameras)
+            {
+                while (used.Contains($"wrist{next}")) next++;
+                string id = $"wrist{next++}";
+                var go = new GameObject($"WristCamera_{id}");
+                go.transform.SetParent(transform, false);
+                var cam = go.AddComponent<EgogripWristCamera>();
+                cam.streamId = id;
+                used.Add(id);
+                _allCams.Add(cam);
+            }
+            Debug.Log($"egogrip: {_allCams.Count} wrist camera(s): {string.Join(", ", _allCams.ConvertAll(c => c.streamId))}");
         }
 
         // head pose stream (XRNode.Head → head_pose.csv); included when recordHead is on at record start
@@ -171,6 +195,9 @@ namespace Egogrip
                     new ControllerStream { node = XRNode.LeftHand,  streamId = "gripper_pose_left" },
                 };
         }
+
+        // Spawn cameras in Awake so they exist before any Start() (e.g. the HUD enumerating them).
+        private void Awake() => EnsureCameras();
 
         private void Start()
         {

@@ -32,16 +32,21 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
   opens all sources, fans samples into per-stream writers, finalizes `manifest.json`. Pose
   streams (controller→TCP, hands, head) are written directly from Unity; USB/serial go through
   the AAR. See [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
-- **In-VR GUI** (`EgogripHud`) — a code-generated, head-locked **uGUI Canvas + TextMeshPro** HUD in
-  **fixed zones** (nothing reflows when you toggle): status bar (REC/idle + timer + sample count),
-  **video zone** (ego + wrist camera feeds in fixed `RawImage` slots), a **sensor roster**, a signals
-  strip, and a device/warnings row. Warn-only (never blocks recording).
+- **In-VR GUI** (`EgogripHud`) — a code-generated, **world-anchored** **uGUI Canvas + TextMeshPro**
+  HUD in **fixed zones** (nothing reflows when you toggle): status bar (REC/idle + timer + sample
+  count), **video zone** (ego + wrist camera feeds as wide, full-width `RawImage` tiles), a **sensor
+  roster**, a signals strip, and a device/warnings row. Warn-only (never blocks recording).
   - **Controls:** `A/X` = record; **thumbstick** moves a highlight over the roster; **grip** toggles
-    the selected sensor (idle-only). Head is a roster row now (no more B/Y shortcut).
+    the selected sensor (idle-only); **B/Y** = *tap* to recenter the panel in front of you, *hold* to
+    drag it with your controller (world-locked, movable). The panel auto-places in front on launch.
   - **Pre-flight sensor roster:** input mode (controllers ↔ hands), controllers L/R, head, each wrist
     camera — all individually on/off before a run, locked mid-run; the finalized `manifest.json`
     reflects exactly the enabled set. Ego and tactile/gripper-serial appear as **pending** placeholders
     until those paths land.
+  - **Multiple cameras:** set `EgogripPoseRecorder.numWristCameras` (default **2**); the app spawns
+    that many capture instances (`wrist0`, `wrist1`, …), each auto-claiming a distinct USB device (the
+    native backend de-dupes). No hard cap — **USB bandwidth** is the real limit (~2 full-rate UVC
+    streams; more at lower res/fps). Unused instances show "no signal".
   - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
     Essential Resources* — without the import TMP renders nothing (layout is still correct).
 - **Calibration mode**: run/refresh `calibration.json`; quick "calibration check" before a
