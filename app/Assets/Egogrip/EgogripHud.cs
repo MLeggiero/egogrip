@@ -54,7 +54,8 @@ namespace Egogrip
         // refs
         private EgogripPoseRecorder _rec;
         private EgogripWristCamera[] _cams = System.Array.Empty<EgogripWristCamera>();
-        private readonly EgogripEgoCamera _ego = new EgogripEgoCamera();
+        private EgogripSerial[] _serial = System.Array.Empty<EgogripSerial>();
+        private EgogripEgoCamera _ego; // the recorder's shared ego source
 
         // status
         private TextMeshProUGUI _statusPill, _statusMeta;
@@ -65,10 +66,10 @@ namespace Egogrip
         private readonly List<Slot> _wristSlots = new List<Slot>();
 
         // roster
-        private enum RowKind { InputMode, Controller, Head, WristCam, EgoPending, SerialPending }
+        private enum RowKind { InputMode, Controller, Head, WristCam, Ego, Serial }
         private class Row
         {
-            public RowKind kind; public XRNode node; public int camIndex;
+            public RowKind kind; public XRNode node; public int camIndex; public int serialIndex;
             public Image highlight, dot; public TextMeshProUGUI label, state;
         }
         private readonly List<Row> _rows = new List<Row>();
@@ -98,6 +99,8 @@ namespace Egogrip
         {
             _rec = Object.FindFirstObjectByType<EgogripPoseRecorder>();
             _cams = Object.FindObjectsByType<EgogripWristCamera>(FindObjectsSortMode.None);
+            _serial = Object.FindObjectsByType<EgogripSerial>(FindObjectsSortMode.None);
+            _ego = _rec != null ? _rec.Ego : Object.FindFirstObjectByType<EgogripEgoCamera>();
             BuildCanvas();
         }
 
@@ -166,9 +169,8 @@ namespace Egogrip
                 foreach (var c in _rec.controllers) _rows.Add(new Row { kind = RowKind.Controller, node = c.node });
             _rows.Add(new Row { kind = RowKind.Head });
             for (int i = 0; i < _cams.Length; i++) _rows.Add(new Row { kind = RowKind.WristCam, camIndex = i });
-            _rows.Add(new Row { kind = RowKind.EgoPending });
-            _rows.Add(new Row { kind = RowKind.SerialPending, node = XRNode.LeftEye });  // tactile marker
-            _rows.Add(new Row { kind = RowKind.SerialPending, node = XRNode.RightEye }); // gripper marker
+            _rows.Add(new Row { kind = RowKind.Ego });
+            for (int i = 0; i < _serial.Length; i++) _rows.Add(new Row { kind = RowKind.Serial, serialIndex = i });
 
             int n = _rows.Count;
             for (int i = 0; i < n; i++)
@@ -220,6 +222,7 @@ namespace Egogrip
                 _lastVideo = Time.realtimeSinceStartup;
                 UpdateVideo();
             }
+            UpdateSignals();
             if (!rec) UpdateRows(handsMode);
 
             // device + controls
@@ -236,9 +239,11 @@ namespace Egogrip
 
         private void UpdateVideo()
         {
-            // ego — pending until PICO enterprise access
-            if (_ego.Available && _ego.Active)
+            // ego — simulated feed now; real enterprise frames once access lands
+            if (_ego != null && _ego.captureEnabled && _ego.Active)
                 DrawSlot(_egoSlot, true, _ego.PreviewWidth(), _ego.PreviewHeight(), _ego.LatestFrame(), null, Grey);
+            else if (_ego != null && !_ego.captureEnabled)
+                DrawSlot(_egoSlot, false, 0, 0, null, "disabled", Grey);
             else
                 DrawSlot(_egoSlot, false, 0, 0, null, "enterprise\naccess pending", Amber);
 
@@ -323,16 +328,43 @@ namespace Egogrip
                         break;
                     }
 
-                    case RowKind.EgoPending:
-                        r.label.text = "ego cam"; r.dot.color = Amber; r.state.text = "enterprise: pending"; r.state.color = Amber;
+                    case RowKind.Ego:
+                        r.label.text = "ego cam";
+                        if (_ego == null) { r.dot.color = Grey; r.state.text = "—"; r.state.color = Grey; }
+                        else if (!_ego.captureEnabled) { r.dot.color = Grey; r.state.text = "off"; r.state.color = Grey; }
+                        else if (_ego.simulate) { r.dot.color = Amber; r.state.text = "simulate"; r.state.color = Amber; }
+                        else if (_ego.Active) { r.dot.color = Green; r.state.text = $"on · {_ego.PreviewWidth()}×{_ego.PreviewHeight()}"; r.state.color = Ink; }
+                        else { r.dot.color = Grey; r.state.text = "enterprise: pending"; r.state.color = Amber; }
                         break;
 
-                    case RowKind.SerialPending:
-                        r.label.text = r.node == XRNode.LeftEye ? "tactile" : "gripper";
-                        r.dot.color = Grey; r.state.text = "serial: pending"; r.state.color = Grey;
+                    case RowKind.Serial:
+                    {
+                        var s = r.serialIndex < _serial.Length ? _serial[r.serialIndex] : null;
+                        r.label.text = s != null ? $"pico {s.deviceIndex}" : "pico";
+                        if (s == null) { r.dot.color = Grey; r.state.text = "none"; r.state.color = Grey; }
+                        else if (!s.captureEnabled) { r.dot.color = Grey; r.state.text = "off"; r.state.color = Grey; }
+                        else if (s.Active) { r.dot.color = Green; r.state.text = $"on · {s.LatestWidthMeters * 1000f:F0}mm · t{s.TactileChannels}"; r.state.color = Ink; }
+                        else { r.dot.color = Red; r.state.text = "on · no signal"; r.state.color = Red; }
                         break;
+                    }
                 }
             }
+        }
+
+        // Live gripper width + tactile per Pico in the signals strip.
+        private void UpdateSignals()
+        {
+            if (_signalsText == null) return;
+            if (_serial.Length == 0) { _signalsText.text = $"<color=#{Hex(Grey)}>no serial devices</color>"; return; }
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < _serial.Length; i++)
+            {
+                var s = _serial[i];
+                if (i > 0) sb.Append("    ");
+                if (s == null || !s.Active) { sb.Append($"<color=#{Hex(Grey)}>pico{i}: no signal</color>"); continue; }
+                sb.Append($"pico{s.deviceIndex}: <color=#{Hex(Green)}>{s.LatestWidthMeters * 1000f:F0} mm</color>  tactile×{s.TactileChannels}");
+            }
+            _signalsText.text = sb.ToString();
         }
 
         // ---------- world anchoring + B/Y grab ----------
@@ -427,7 +459,13 @@ namespace Egogrip
                     var cam = r.camIndex < _cams.Length ? _cams[r.camIndex] : null;
                     if (cam != null) cam.SetCaptureEnabled(!cam.captureEnabled);
                     break;
-                // EgoPending / SerialPending: not available yet → no-op
+                case RowKind.Ego:
+                    if (_ego != null) _ego.SetCaptureEnabled(!_ego.captureEnabled);
+                    break;
+                case RowKind.Serial:
+                    var s = r.serialIndex < _serial.Length ? _serial[r.serialIndex] : null;
+                    if (s != null) s.SetCaptureEnabled(!s.captureEnabled);
+                    break;
             }
         }
 

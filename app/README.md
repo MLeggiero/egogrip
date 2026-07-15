@@ -40,13 +40,26 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
     the selected sensor (idle-only); **B/Y** = *tap* to recenter the panel in front of you, *hold* to
     drag it with your controller (world-locked, movable). The panel auto-places in front on launch.
   - **Pre-flight sensor roster:** input mode (controllers ↔ hands), controllers L/R, head, each wrist
-    camera — all individually on/off before a run, locked mid-run; the finalized `manifest.json`
-    reflects exactly the enabled set. Ego and tactile/gripper-serial appear as **pending** placeholders
-    until those paths land.
+    camera, **ego**, and each **Pico** — all individually on/off before a run, locked mid-run; the
+    finalized `manifest.json` reflects exactly the enabled set.
   - **Multiple cameras:** set `EgogripPoseRecorder.numWristCameras` (default **2**); the app spawns
     that many capture instances (`wrist0`, `wrist1`, …), each auto-claiming a distinct USB device (the
     native backend de-dupes). No hard cap — **USB bandwidth** is the real limit (~2 full-rate UVC
     streams; more at lower res/fps). Unused instances show "no signal".
+  - **Serial (RP2040 Picos):** set `numSerialDevices` (default **2**); each `EgogripSerial` claims a
+    distinct CDC device and records `gripper_state<idx>.csv` / `tactile<idx>.csv` /
+    `sync_events<idx>.csv`. Live gripper width + tactile show in the signals strip. Needs the serial
+    code in the AAR — **rebuild `egogrip-capture.aar`** (see below).
+  - **Ego camera:** `EgogripEgoCamera.simulate` (default **on**) generates a synthetic feed that shows
+    in the ego slot AND records `ego.mp4` — so you can exercise the whole path *as if* PICO enterprise
+    access existed, without breaking anything. When access lands: implement `PollReal()`, add the
+    `EGOGRIP_PICO_EGO` define, and flip `simulate` off — same record seam.
+  - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
+    Essential Resources* — without the import TMP renders nothing (layout is still correct).
+  - **Rebuild the AAR** for serial/ego recording: Android Studio → build `:capture` in `app-native/`
+    → drop `egogrip-capture.aar` into `Assets/Plugins/Android/`. The serial lib is on jitpack; if the
+    Unity build can't resolve `com.github.mik3y:usb-serial-for-android`, add a Custom Gradle Settings
+    Template with `maven { url 'https://www.jitpack.io' }` or bundle its `.aar` in `Plugins/Android/`.
   - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
     Essential Resources* — without the import TMP renders nothing (layout is still correct).
 - **Calibration mode**: run/refresh `calibration.json`; quick "calibration check" before a
