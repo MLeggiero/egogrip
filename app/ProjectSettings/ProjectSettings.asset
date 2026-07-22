@@ -681,7 +681,8 @@ PlayerSettings:
   webGLCloseOnQuit: 0
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
-  scriptingDefineSymbols: {}
+  scriptingDefineSymbols:
+    Android: EGOGRIP_PICO_HANDS
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:

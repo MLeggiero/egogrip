@@ -10,6 +10,11 @@ dependencies {
     // capture module (app-native, kotlin.android 1.9.24).
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
     implementation 'com.herohan:UVCAndroid:1.0.9'
+    // USB-serial for the RP2040 Picos (gripper + tactile). The AAR uses it; declare it here too so
+    // Unity's Gradle build resolves it. On jitpack — see docs/UNITY_STEPS.md if it fails to resolve
+    // (enable a Custom Gradle Settings Template with maven { url 'https://www.jitpack.io' }, or drop
+    // the usb-serial-for-android .aar into this folder).
+    implementation 'com.github.mik3y:usb-serial-for-android:3.8.1'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 **DEPS**}
 

@@ -8,6 +8,9 @@ package org.egogrip.capture
  *
  * Feed raw bytes from the serial read thread via [feed]; valid frames are delivered to the
  * callbacks on that same thread. Bytes are buffered across reads, so split frames are fine.
+ *
+ * Lives in the capture (AAR) module so both the Unity bridge (EgogripSerial) and the standalone
+ * app share one parser.
  */
 class Protocol(
     private val onState: (micros: Long, rawCounts: Int, deltaCounts: Int, trigger: Int) -> Unit,

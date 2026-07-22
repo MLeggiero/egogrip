@@ -53,6 +53,21 @@ class EpisodeWriter(context: Context) {
     private var imuFile: String? = null
     private var imuCount = 0
 
+    // pose6dof streams (phone/ARCore): gripper (from the ego-cam marker) + head/ego (ARCore VIO)
+    private var gripperCsv: BufferedWriter? = null
+    private var gripperCount = 0
+    private var headPoseCsv: BufferedWriter? = null
+    private var headPoseCount = 0
+    // T_marker_TCP (marker→gripper jaw), recorded into the gripper_pose stream's pose_offset
+    private var gripperOffsetT = floatArrayOf(0f, 0f, 0f)
+    private var gripperOffsetQ = floatArrayOf(0f, 0f, 0f, 1f)
+    private var egoRgb = false
+    private var egoDepth = false
+    private var headPresent = false
+
+    // raw manifest stream descriptors emitted by the :capture facades (wrist UVC, ego mp4, serial)
+    private val rawStreams = mutableListOf<String>()
+
     private fun open(name: String, header: String): BufferedWriter {
         val w = BufferedWriter(FileWriter(File(dir, name)))
         w.write(header); w.newLine()
@@ -87,6 +102,44 @@ class EpisodeWriter(context: Context) {
         stopNs = arrivalNs
     }
 
+    private val poseHeader = "monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state"
+
+    /** Gripper 6-DoF TCP pose (world), recovered from the AprilTag on the gripper. */
+    @Synchronized
+    fun writeGripperPose(ns: Long, x: Float, y: Float, z: Float, qx: Float, qy: Float, qz: Float, qw: Float, track: Int) {
+        if (gripperCsv == null) gripperCsv = open("gripper_pose.csv", poseHeader)
+        gripperCsv!!.write("$ns,$x,$y,$z,$qx,$qy,$qz,$qw,$track"); gripperCsv!!.newLine()
+        gripperCount++
+        if (gripperCount % 50 == 0) gripperCsv!!.flush()
+        stopNs = ns
+    }
+
+    /** Head/ego 6-DoF pose (world) from ARCore VIO. */
+    @Synchronized
+    fun writeHeadPose(ns: Long, x: Float, y: Float, z: Float, qx: Float, qy: Float, qz: Float, qw: Float, track: Int) {
+        if (headPoseCsv == null) headPoseCsv = open("head_pose.csv", poseHeader)
+        headPoseCsv!!.write("$ns,$x,$y,$z,$qx,$qy,$qz,$qw,$track"); headPoseCsv!!.newLine()
+        headPoseCount++
+        headPresent = true
+        if (headPoseCount % 50 == 0) headPoseCsv!!.flush()
+        stopNs = ns
+    }
+
+    /** T_marker_TCP: how the marker is mounted relative to the gripper jaw midpoint. */
+    @Synchronized
+    fun setGripperOffset(t: FloatArray, q: FloatArray) { gripperOffsetT = t; gripperOffsetQ = q }
+
+    /** Declare that the phone's ego RGB (and optionally depth) is being recorded. */
+    @Synchronized
+    fun setEgoCapabilities(rgb: Boolean, depth: Boolean) { egoRgb = rgb; egoDepth = depth }
+
+    /** Splice a manifest stream descriptor produced by a :capture facade (wrist UVC / ego mp4 / serial).
+     *  Accepts a single JSON object, or several comma-joined objects (as EgogripSerial returns). */
+    @Synchronized
+    fun addRawStream(descriptorJson: String?) {
+        if (!descriptorJson.isNullOrBlank()) rawStreams.add(descriptorJson)
+    }
+
     /** Called by the camera module to register its mp4 + frame index. */
     @Synchronized
     fun setVideo(streamId: String, mp4: String, indexCsv: String, w: Int, h: Int, frames: Int) {
@@ -101,16 +154,32 @@ class EpisodeWriter(context: Context) {
     }
 
     fun statusLine(): String =
-        "state=$stateCount tactile=$tactileCount" +
+        "gripper=$gripperCount head=$headPoseCount state=$stateCount tactile=$tactileCount" +
             (videoStreamId?.let { " video=$videoCount" } ?: "") +
-            (imuStreamId?.let { " imu=$imuCount" } ?: "")
+            (if (rawStreams.isNotEmpty()) " streams+${rawStreams.size}" else "")
 
     @Synchronized
     fun finalizeEpisode(): File {
         stateCsv.flush(); stateCsv.close()
         tactileCsv?.flush(); tactileCsv?.close()
+        gripperCsv?.flush(); gripperCsv?.close()
+        headPoseCsv?.flush(); headPoseCsv?.close()
 
         val streams = JSONArray()
+        if (gripperCount > 0) streams.put(JSONObject().apply {
+            put("id", "gripper_pose"); put("kind", "pose6dof")
+            put("file", "gripper_pose.csv"); put("timestamp_field", "monotonic_ns")
+            put("sample_count", gripperCount); put("frame", "world"); put("units", "m")
+            put("pose_offset", JSONObject().apply {
+                put("translation_m", JSONArray(listOf(gripperOffsetT[0], gripperOffsetT[1], gripperOffsetT[2])))
+                put("rotation_quat_xyzw", JSONArray(listOf(gripperOffsetQ[0], gripperOffsetQ[1], gripperOffsetQ[2], gripperOffsetQ[3])))
+            })
+        })
+        if (headPoseCount > 0) streams.put(JSONObject().apply {
+            put("id", "head_pose"); put("kind", "pose6dof")
+            put("file", "head_pose.csv"); put("timestamp_field", "monotonic_ns")
+            put("sample_count", headPoseCount); put("frame", "world"); put("units", "m")
+        })
         streams.put(JSONObject().apply {
             put("id", "gripper_state"); put("kind", "gripper_state")
             put("file", "gripper_state.csv"); put("timestamp_field", "monotonic_ns")
@@ -147,23 +216,31 @@ class EpisodeWriter(context: Context) {
                 put("sample_count", imuCount); put("frame", "head")
             })
         }
+        // raw descriptors from the :capture facades (ego mp4, wrist UVC, serial). May be one object
+        // or several comma-joined objects (EgogripSerial) — wrap in [] and merge.
+        for (raw in rawStreams) {
+            try {
+                val arr = JSONArray("[$raw]")
+                for (i in 0 until arr.length()) streams.put(arr.getJSONObject(i))
+            } catch (_: Exception) { /* skip malformed */ }
+        }
 
         val manifest = JSONObject().apply {
             put("format_version", "0.1.0")
             put("episode_id", episodeId)
-            put("task_label", "native USB+sensor capture test")
+            put("task_label", "phone ego capture")
             put("conventions", JSONObject().apply {
                 put("length_unit", "m"); put("time_unit", "ns")
                 put("world_frame", "openxr_y_up_rh"); put("quaternion_order", "xyzw")
             })
             put("device", JSONObject().apply {
-                put("model", Build.MODEL ?: "PICO")
-                put("platform", "pico")
+                put("model", Build.MODEL ?: "android")
+                put("platform", "android")
                 put("os", "Android ${Build.VERSION.RELEASE}")
                 put("app_version", "0.1.0")
                 put("capabilities", JSONObject().apply {
-                    put("ego_rgb", false); put("ego_depth", false)
-                    put("head_pose", false); put("hand_tracking", false)
+                    put("ego_rgb", egoRgb); put("ego_depth", egoDepth)
+                    put("head_pose", headPresent); put("hand_tracking", false)
                     put("controller_pose", false); put("world_frame", "openxr_y_up_rh")
                 })
             })

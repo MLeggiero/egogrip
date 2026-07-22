@@ -32,6 +32,25 @@ Episodes have serial + camera + IMU but **no 6-DoF gripper pose yet** (that need
 controller/Unity phase), so they validate *capture*; `egogrip-validate` passes, `egogrip-export`
 (needs a pose stream) does not — expected.
 
+## Phone (ego) mode — ARCore + gripper marker
+The same app doubles as the **Android phone** capture rig (`docs/adapters/ANDROID_PHONE.md`): the
+phone is worn on the **chest/head** as the egocentric camera; wrist cam(s) + the RP2040 come in over
+the USB-C hub.
+- `ArCoreEgoSource` (GLSurfaceView renderer) → **ego video** (rear camera, H.264) + **head_pose**
+  (ARCore VIO) + hands each frame's image/intrinsics/pose to the tracker.
+- `GripperMarkerTracker` → detects an **AprilTag/ArUco marker on the gripper** (OpenCV) → PnP →
+  `gripper_pose` (world) = `camWorldPose · T_egocam_marker · T_marker_TCP`.
+- `EpisodeWriter` now writes `gripper_pose.csv` + `head_pose.csv` and sets phone capabilities
+  (`ego_rgb`, `head_pose` true; `controller_pose` false; `platform:"android"`) → episodes are
+  **fully exportable** (unlike the pose-less PICO-native episodes).
+- Deps: `com.google.ar:core` (needs Google Play Services for AR) + OpenCV (`org.opencv:opencv`).
+- **Calibrate:** printed marker size + `T_marker_TCP` (marker→jaw), set in `startCapture`'s
+  `GripperMarkerTracker(...)`.
+
+> ⚠ The ARCore session/GL, OpenCV ArUco+PnP (incl. the OpenCV↔ARCore camera-frame flip), and the
+> calibration are **written but only compile/verify in Android Studio on a real phone** — and confirm
+> ARCore (built-in cam) + USB cameras + serial run concurrently on your device.
+
 ## Files
 - `Protocol.kt` — parses the RP2040 frames (mirrors the firmware).
 - `SerialClient.kt` — usb-serial-for-android open + permission + read loop.

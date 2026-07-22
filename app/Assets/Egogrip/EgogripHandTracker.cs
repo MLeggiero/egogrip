@@ -10,15 +10,14 @@ namespace Egogrip
     /// All PICO-SDK-specific symbols are quarantined in this one file so the rest of the project
     /// always compiles regardless of the installed SDK.
     ///
-    /// ⚠ BUILD FLAG: the real PXR path is behind the <c>EGOGRIP_PICO_HANDS</c> scripting define
-    /// (Project Settings ▸ Player ▸ Scripting Define Symbols). Without it this is an inert stub
-    /// (<see cref="Available"/> = false) — so the app builds cleanly out of the box. To turn hand
-    /// tracking on:
-    ///   1. Enable Hand Tracking in the PICO project settings (PXR_ProjectSetting handTracking = 1).
-    ///   2. Add <c>EGOGRIP_PICO_HANDS</c> to the Android scripting define symbols.
-    ///   3. Confirm the PXR_HandTracking symbols below against your PICO SDK version (v3.4.0):
-    ///      method name <c>GetJointLocations</c>, the <c>HandJointLocations</c>/<c>HandJointLocation</c>
-    ///      structs, the <c>pose</c> field, and the <c>Posef</c> Position/Orientation field names.
+    /// BUILD FLAG: the real PXR path is behind the <c>EGOGRIP_PICO_HANDS</c> scripting define — now
+    /// ENABLED for Android (ProjectSettings) alongside PXR_ProjectSetting handTracking = 1. Remove the
+    /// define to fall back to an inert stub (<see cref="Available"/> = false) that always compiles.
+    /// The API here matches the PICO Unity SDK reference (GetJointLocations(HandType, ref
+    /// HandJointLocations); HandJointLocations.jointLocations[]; HandJointLocation.pose{Position,
+    /// Orientation}). ⚠ Residual: the exact pose component access is verifiable only against your
+    /// installed SDK — <c>.x/.y/.z(/.w)</c> works whether PICO exposes Unity or Pxr vector types, but
+    /// if the build errors here, it's isolated to this one file.
     ///
     /// Poses are returned in the XR tracking frame (same space as controller devicePosition), so the
     /// recorder logs them raw and declares world_frame = "unity_y_up_lh" exactly like the controller

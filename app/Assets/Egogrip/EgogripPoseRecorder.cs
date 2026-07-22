@@ -85,13 +85,80 @@ namespace Egogrip
                  "streamId; each auto-binds to a different physical USB camera. Add one component per camera.")]
         public EgogripWristCamera[] extraCameras;
 
-        // wristCamera + extraCameras, non-null and de-duplicated — the full set we drive.
-        private IEnumerable<EgogripWristCamera> AllCameras()
+        [Tooltip("How many USB wrist cameras to run. On Start, spawns EgogripWristCamera instances up to " +
+                 "this count (wrist0, wrist1, …); each backend auto-claims a distinct USB device. No hard " +
+                 "cap — USB bandwidth is the real limit (~2 full-rate streams; more at lower res/fps).")]
+        public int numWristCameras = 2;
+
+        [Tooltip("How many RP2040 (gripper + tactile) Picos to read over USB-serial. Spawns that many " +
+                 "EgogripSerial instances; each claims a distinct CDC device.")]
+        public int numSerialDevices = 2;
+
+        // Every EgogripWristCamera in the scene (serialized + spawned), cached at Start — the full set we drive.
+        private readonly List<EgogripWristCamera> _allCams = new List<EgogripWristCamera>();
+        private IEnumerable<EgogripWristCamera> AllCameras() => _allCams;
+
+        // Serial Picos + the ego camera, spawned in Awake and driven alongside the cameras.
+        private readonly List<EgogripSerial> _allSerial = new List<EgogripSerial>();
+        public IReadOnlyList<EgogripSerial> SerialDevices => _allSerial;
+        public EgogripEgoCamera Ego { get; private set; }
+
+        // Discover existing wrist cameras and spawn up to numWristCameras total, with unique wristN streamIds.
+        private void EnsureCameras()
         {
-            if (wristCamera != null) yield return wristCamera;
-            if (extraCameras != null)
-                foreach (var c in extraCameras)
-                    if (c != null && c != wristCamera) yield return c;
+            _allCams.Clear();
+            _allCams.AddRange(Object.FindObjectsByType<EgogripWristCamera>(FindObjectsSortMode.None));
+
+            var used = new HashSet<string>();
+            foreach (var c in _allCams) if (!string.IsNullOrEmpty(c.streamId)) used.Add(c.streamId);
+
+            int next = 0;
+            while (_allCams.Count < numWristCameras)
+            {
+                while (used.Contains($"wrist{next}")) next++;
+                string id = $"wrist{next++}";
+                var go = new GameObject($"WristCamera_{id}");
+                go.transform.SetParent(transform, false);
+                var cam = go.AddComponent<EgogripWristCamera>();
+                cam.streamId = id;
+                used.Add(id);
+                _allCams.Add(cam);
+            }
+            Debug.Log($"egogrip: {_allCams.Count} wrist camera(s): {string.Join(", ", _allCams.ConvertAll(c => c.streamId))}");
+        }
+
+        // Discover/spawn up to numSerialDevices RP2040 serial readers (unique deviceIndex each).
+        private void EnsureSerial()
+        {
+            _allSerial.Clear();
+            _allSerial.AddRange(Object.FindObjectsByType<EgogripSerial>(FindObjectsSortMode.None));
+            var used = new HashSet<int>();
+            foreach (var s in _allSerial) used.Add(s.deviceIndex);
+            int next = 0;
+            while (_allSerial.Count < numSerialDevices)
+            {
+                while (used.Contains(next)) next++;
+                int di = next++;
+                var go = new GameObject($"Serial_{di}");
+                go.transform.SetParent(transform, false);
+                var s = go.AddComponent<EgogripSerial>();
+                s.deviceIndex = di;
+                used.Add(di);
+                _allSerial.Add(s);
+            }
+            Debug.Log($"egogrip: {_allSerial.Count} serial device(s)");
+        }
+
+        // Ensure a single ego-camera source exists (simulate today; enterprise later).
+        private void EnsureEgo()
+        {
+            Ego = Object.FindFirstObjectByType<EgogripEgoCamera>();
+            if (Ego == null)
+            {
+                var go = new GameObject("EgoCamera");
+                go.transform.SetParent(transform, false);
+                Ego = go.AddComponent<EgogripEgoCamera>();
+            }
         }
 
         // head pose stream (XRNode.Head → head_pose.csv); included when recordHead is on at record start
@@ -171,6 +238,9 @@ namespace Egogrip
                     new ControllerStream { node = XRNode.LeftHand,  streamId = "gripper_pose_left" },
                 };
         }
+
+        // Spawn sources in Awake so they exist before any Start() (e.g. the HUD enumerating them).
+        private void Awake() { EnsureCameras(); EnsureSerial(); EnsureEgo(); }
 
         private void Start()
         {
@@ -380,6 +450,9 @@ namespace Egogrip
             }
             foreach (var cam in AllCameras())
                 if (cam.captureEnabled) cam.StartInto(_episodeDir); // panel-toggled off → skipped this take
+            foreach (var s in _allSerial)
+                if (s.captureEnabled) s.StartInto(_episodeDir);
+            if (Ego != null && Ego.captureEnabled && Ego.Available) Ego.StartInto(_episodeDir);
             _startNs = EgogripClock.NowNs();
             _stopNs = _startNs;
             _recording = true;
@@ -397,6 +470,16 @@ namespace Egogrip
             foreach (var cam in AllCameras())
             {
                 string desc = cam.Stop();
+                if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
+            }
+            foreach (var s in _allSerial)
+            {
+                string desc = s.Stop(); // may be comma-joined gripper_state/tactile/sync descriptors
+                if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
+            }
+            if (Ego != null)
+            {
+                string desc = Ego.Stop();
                 if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
             }
             File.WriteAllText(Path.Combine(_episodeDir, "manifest.json"), BuildManifest(camStreams));
@@ -467,7 +550,7 @@ namespace Egogrip
             sb.Append("  \"device\": {\n");
             sb.Append($"    \"model\": \"{SystemInfo.deviceModel}\", \"platform\": \"pico\", " +
                       $"\"os\": \"{SystemInfo.operatingSystem}\", \"app_version\": \"0.1.0\",\n");
-            sb.Append("    \"capabilities\": {\"ego_rgb\": false, \"ego_depth\": false, " +
+            sb.Append($"    \"capabilities\": {{\"ego_rgb\": {((Ego != null && Ego.Available) ? "true" : "false")}, \"ego_depth\": false, " +
                       $"\"head_pose\": {((hands || recordHead) ? "true" : "false")}, " +
                       $"\"hand_tracking\": {(hands ? "true" : "false")}, " +
                       $"\"controller_pose\": {(hands ? "false" : "true")}, " +
