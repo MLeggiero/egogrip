@@ -94,10 +94,10 @@ These were chosen deliberately; rationale lives in
 ```
 egogrip/
 ├── docs/              architecture, data format, sync, hardware, roadmap, decisions,
-│                      PORTABILITY, PICO_TOMORROW (setup runbook), NATIVE_APP_PLAN, adapters/
-├── app-native/        native Android (Kotlin) capture app — serial + episodes  [WORKING]
-├── app/               Unity APK (in-VR GUI + pose + enterprise camera)  [scaffold]
-├── native-plugin/     Android AAR: UVC cameras + USB-serial bridge      [scaffold]
+│                      PORTABILITY, PICO_TOMORROW (setup runbook), adapters/
+├── app-native/        native Android (Kotlin): phone-ego capture app +
+│                      capture/ → egogrip-capture.aar (UVC + serial + ego)  [WORKING]
+├── app/               Unity APK (in-VR GUI + pose + enterprise camera)  [WORKING]
 ├── firmware/          RP2040 — CircuitPython ref [WORKING] + Arduino-Pico/AS5600 [building]
 ├── pipeline/          Python: raw capture → LeRobot dataset             [WORKING]
 ├── hardware/          mock-gripper CAD plan + BOM

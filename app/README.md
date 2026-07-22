@@ -2,7 +2,7 @@
 
 The on-headset application: the **in-VR GUI** and the **capture orchestrator**. Unity owns the
 XR session (controller / hand / head pose via the PICO Integration SDK, ego RGB via the
-enterprise camera API) and calls the [native AAR plugin](../native-plugin/) for USB cameras
+enterprise camera API) and calls the [native AAR plugin](../app-native/capture/) for USB cameras
 and serial.
 
 > Status: the Unity project **is** committed (scene, scripts, ProjectSettings, Packages). One thing
@@ -67,7 +67,7 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
 
 ## Stack / packages (planned)
 - Unity LTS + **PICO Integration SDK** (XR, hand tracking, motion tracking; enterprise camera).
-- The native [`egogrip-capture.aar`](../native-plugin/) in `Assets/Plugins/Android/`.
+- The native [`egogrip-capture.aar`](../app-native/capture/) in `Assets/Plugins/Android/`.
 - Build target: Android APK, sideloaded to the PICO 4 Ultra Enterprise (the registered
   authorized package name — see [../docs/PICO_ENTERPRISE_NOTES.md](../docs/PICO_ENTERPRISE_NOTES.md)).
 

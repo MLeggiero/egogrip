@@ -8,7 +8,7 @@ package org.egogrip.capture
 // API NOTE: herohan/UVCAndroid's high-level helper class/method names vary slightly across
 // versions. This targets the `ICameraHelper` pattern; if your installed version differs,
 // adjust the imports/method names (the structure stays the same). Synchronized UVC->mp4
-// encoding is a follow-up (docs/NATIVE_APP_PLAN.md); this proves the camera streams and logs
+// encoding is handled by EgogripFrameEncoder in app-native/capture/; this proves the camera streams and logs
 // per-frame timestamps on the shared clock.
 
 import android.content.Context
