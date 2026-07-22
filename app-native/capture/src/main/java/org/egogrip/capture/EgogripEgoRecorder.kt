@@ -22,6 +22,9 @@ class EgogripEgoRecorder {
 
     fun pushFrame(rgba: ByteArray, monotonicNs: Long) = enc?.pushFrame(rgba, monotonicNs) ?: Unit
 
+    /** Encode an ARCore/Camera2 YUV_420_888 frame directly (phone ego path). */
+    fun pushImage(image: android.media.Image, monotonicNs: Long) = enc?.pushImage(image, monotonicNs) ?: Unit
+
     /** Finalize; returns the manifest stream descriptor (empty if nothing was written). */
     fun stopRecording(streamId: String, w: Int, h: Int): String {
         val e = enc ?: return ""

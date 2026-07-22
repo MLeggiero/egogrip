@@ -73,6 +73,38 @@ class EgogripFrameEncoder {
         drain(false)
     }
 
+    /** Encode an ARCore/Camera2 YUV_420_888 frame directly (no RGBA round-trip). Image dims must
+     *  match the width/height passed to [start]. */
+    fun pushImage(image: android.media.Image, monotonicNs: Long) {
+        val c = codec ?: return
+        if (startNs == 0L) startNs = monotonicNs
+        val ptsUs = (monotonicNs - startNs) / 1000
+        yuv420ToNv12(image, nv12!!, width, height)
+        val inIdx = c.dequeueInputBuffer(10_000)
+        if (inIdx >= 0) {
+            val ib = c.getInputBuffer(inIdx) ?: return
+            ib.clear(); ib.put(nv12!!)
+            c.queueInputBuffer(inIdx, 0, nv12!!.size, ptsUs, 0)
+        }
+        drain(false)
+    }
+
+    // YUV_420_888 (planar/semi-planar, arbitrary strides) → NV12 (Y then interleaved U,V).
+    private fun yuv420ToNv12(image: android.media.Image, out: ByteArray, w: Int, h: Int) {
+        val yp = image.planes[0]; val up = image.planes[1]; val vp = image.planes[2]
+        val yb = yp.buffer; val ub = up.buffer; val vb = vp.buffer
+        val yrs = yp.rowStride; val yps = yp.pixelStride
+        var o = 0
+        for (row in 0 until h) { val base = row * yrs; for (col in 0 until w) out[o++] = yb.get(base + col * yps) }
+        val urs = up.rowStride; val ups = up.pixelStride
+        val vrs = vp.rowStride; val vps = vp.pixelStride
+        var uo = w * h
+        for (row in 0 until h / 2) for (col in 0 until w / 2) {
+            out[uo++] = ub.get(row * urs + col * ups)
+            out[uo++] = vb.get(row * vrs + col * vps)
+        }
+    }
+
     private fun drain(endOfStream: Boolean) {
         val c = codec ?: return
         if (endOfStream) {
