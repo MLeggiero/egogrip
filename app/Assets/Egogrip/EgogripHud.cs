@@ -232,9 +232,11 @@ namespace Egogrip
             string warn = BuildWarnings(bat, free, handsMode);
             _deviceText.text = $"batt {batStr}    free {EgogripDeviceStatus.FormatBytes(free)}"
                              + (warn.Length > 0 ? $"    {warn}" : "");
+            // NB: keep to glyphs present in the default LiberationSans SDF (● ○ ▲ ▼ render;
+            // ▶ U+25B6 and ⏻ U+23FB are NOT in it and showed as □ boxes on-device).
             _controlsText.text = rec
-                ? $"<color=#{Hex(Red)}>● recording…</color>   A/X ■ stop"
-                : "A/X ▶ rec    stick ▲▼    grip ⏻ toggle";
+                ? $"<color=#{Hex(Red)}>●</color> recording…   A/X: stop"
+                : "A/X: rec    stick ▲▼ select    grip: toggle";
         }
 
         private void UpdateVideo()
