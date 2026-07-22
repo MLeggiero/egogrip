@@ -1,26 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Declared here so they MERGE into any consuming app (the Unity APK) automatically — no need
-     to hand-edit Unity's manifest. CAMERA = UVC capture; usb.host = external USB devices. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<!-- Declared here so they MERGE into any consuming app automatically (the standalone native app
+     AND the Unity APK). CAMERA = UVC capture; usb.host = external USB devices.
+     NOTE: the Unity-launcher USB_DEVICE_ATTACHED intent-filter is intentionally NOT here — it
+     targets com.unity3d.player.UnityPlayerActivity, which only exists in the Unity APK. Putting it
+     in this shared AAR would make the manifest merger fabricate that activity in the standalone
+     native app (breaking the Android-12 exported check, and wiring USB attach to a missing class).
+     It now lives in app/Assets/Plugins/Android/AndroidManifest.xml (Unity-only). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- PICO 4 Ultra / Horizon OS entitlement that exposes an external USB camera to Camera2.
-         EgoKit declares this; without it openCamera() on the LENS_FACING_EXTERNAL id is denied. -->
+         EgoKit declares this; without it openCamera() on the LENS_FACING_EXTERNAL id is denied.
+         Unknown/ignored on non-Horizon devices (e.g. a phone), so it merges harmlessly. -->
     <uses-permission android:name="horizonos.permission.USB_CAMERA" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-feature android:name="android.hardware.camera.external" android:required="false" />
-
-    <!-- Merge a USB_DEVICE_ATTACHED intent-filter + device_filter onto Unity's launcher activity so
-         attaching a UVC camera auto-grants USB permission (with the user's one-time "always" tick)
-         and can auto-launch the app. Merged by android name into the consuming Unity APK. -->
-    <application>
-        <activity android:name="com.unity3d.player.UnityPlayerActivity" tools:node="merge">
-            <intent-filter>
-                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
-            </intent-filter>
-            <meta-data
-                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-                android:resource="@xml/device_filter" />
-        </activity>
-    </application>
 </manifest>
