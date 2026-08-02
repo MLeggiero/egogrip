@@ -1,5 +1,5 @@
 /*
- * egogrip tactile bench test — Arduino Mega 2560 + MPR121 capacitive breakout
+ * egogrip tactile bench test — ESP32 or Arduino Mega 2560 + MPR121 capacitive breakout
  * (sold as "HW-017" / "GY-MPR121"; the chip is an NXP/Freescale MPR121).
  *
  * Sensor under test: 12 copper-tape strips (ELE0 = leftmost) under a GROUNDED copper-tape
@@ -13,14 +13,38 @@
  * protocol in ../rp2040-gripper/README.md. It exists to answer "does my sensor actually work,
  * and what dynamic range does each channel have?" before that data is worth streaming.
  *
- * !! 3.3 V PART !! Power the breakout from the Mega's 3V3 pin, never 5V, and either use a
- * level shifter on SDA/SCL or leave DISABLE_INTERNAL_PULLUPS set (see README.md §1).
+ * !! The MPR121 is a 3.3 V PART !!
+ *   ESP32 — 3.3 V logic, wire it straight through. Preferred board.
+ *   Mega  — 5 V logic. Power the breakout from 3V3 (never 5V) and either fit a level shifter
+ *           on SDA/SCL or leave DISABLE_INTERNAL_PULLUPS set (see README.md §1).
  *
- * Wiring: SDA->20, SCL->21, VCC->3V3, GND->GND, ground plate -> the same GND. IRQ unused.
- * Send 'h' over serial for the command list.
+ * Wiring: VCC->3V3, GND->GND, ground plate -> the same GND, SDA/SCL per the table below.
+ * IRQ unused (this sketch polls). Send 'h' over serial for the command list.
+ *
+ * On ESP32, leave WiFi and Bluetooth off. Both radios inject noise straight into a
+ * high-impedance capacitive front end; neither is started unless you ask for it.
  */
 #include <Wire.h>
 #include <EEPROM.h>
+
+// ---------------------------------------------------------------- board differences
+
+#if defined(ARDUINO_ARCH_ESP32)
+// The core's default I2C pins vary by variant: 21/22 on classic ESP32, 8/9 on S2/S3/C3.
+// Override here if your board breaks them out elsewhere; the pins in use are printed at boot.
+#ifndef I2C_SDA
+#define I2C_SDA SDA
+#endif
+#ifndef I2C_SCL
+#define I2C_SCL SCL
+#endif
+#define EE_SIZE 64          // ESP32 "EEPROM" is emulated in flash and must be sized + committed
+#define EE_COMMIT() EEPROM.commit()
+#else
+#define I2C_SDA SDA         // Mega 2560: 20 / 21, fixed by the TWI peripheral
+#define I2C_SCL SCL
+#define EE_COMMIT() ((void)0)
+#endif
 
 // ---------------------------------------------------------------- user config
 
@@ -46,9 +70,10 @@ static const uint16_t RELEASE_MS = 40;
 static const uint16_t TAP_MS = 200;
 static const float SLIDE_MM = 3.0f;
 
-// The Mega's TWI pins idle high through the AVR's internal pull-ups, which sit on the 5 V rail.
-// Disabling them leaves the breakout's own 3.3 V pull-ups in charge, so the bus never swings
-// above 3.3 V. Set to 0 only if you fitted a proper bidirectional level shifter.
+// AVR only. The Mega's TWI pins idle high through the AVR's internal pull-ups, which sit on
+// the 5 V rail. Disabling them leaves the breakout's own 3.3 V pull-ups in charge, so the bus
+// never swings above 3.3 V. Set to 0 only if you fitted a bidirectional level shifter.
+// Irrelevant on ESP32, whose pull-ups are already on 3.3 V.
 #define DISABLE_INTERNAL_PULLUPS 1
 
 // ---------------------------------------------------------------- MPR121 registers
@@ -141,6 +166,23 @@ static bool find_device() {
   }
   i2c_addr = 0;
   return false;
+}
+
+// Full bus sweep, printed when the MPR121 is missing — distinguishes "nothing on the bus at
+// all" (power/wiring) from "something is there but not where we expect" (ADDR strap).
+static void bus_scan() {
+  Serial.print(F("# I2C scan:"));
+  uint8_t found = 0;
+  for (uint8_t a = 0x08; a < 0x78; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.print(F(" 0x"));
+      Serial.print(a, HEX);
+      found++;
+    }
+  }
+  if (!found) Serial.print(F(" nothing responding — check 3V3, GND, SDA/SCL and pull-ups"));
+  Serial.println();
 }
 
 static void configure() {
@@ -246,6 +288,7 @@ static void spans_save() {
   a += sizeof(EE_MAGIC);
   for (uint8_t i = 0; i < N_CH; i++, a += 2) EEPROM.put(a, span[i]);
   EEPROM.put(a, ee_checksum(span));
+  EE_COMMIT();
   Serial.println(F("# spans saved to EEPROM"));
 }
 
@@ -532,11 +575,16 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   delay(200);
 
+#if defined(ARDUINO_ARCH_ESP32)
+  EEPROM.begin(EE_SIZE);
+  Wire.begin(I2C_SDA, I2C_SCL);
+#else
   Wire.begin();
 #if DISABLE_INTERNAL_PULLUPS
   // Wire.begin() enables the AVR's pull-ups to 5 V. Turn them off; the breakout pulls to 3.3 V.
   digitalWrite(SDA, LOW);
   digitalWrite(SCL, LOW);
+#endif
 #endif
   Wire.setClock(400000);
 
@@ -544,8 +592,14 @@ void setup() {
   for (uint8_t i = 0; i < N_CH; i++) { base[i] = 0; sigma[i] = 0; gate[i] = NOISE_GATE_MIN; }
 
   print_help();
+  Serial.print(F("# I2C SDA="));
+  Serial.print((int)I2C_SDA);
+  Serial.print(F(" SCL="));
+  Serial.println((int)I2C_SCL);
+
   if (!find_device()) {
-    Serial.println(F("! no MPR121 found on 0x5A-0x5D — check 3V3, GND, SDA=20, SCL=21"));
+    Serial.println(F("! no MPR121 found on 0x5A-0x5D"));
+    bus_scan();
     return;
   }
   Serial.print(F("# MPR121 at 0x"));

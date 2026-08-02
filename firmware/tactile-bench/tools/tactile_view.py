@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live viewer for the egogrip tactile bench sketch (Arduino Mega + MPR121).
+"""Live viewer for the egogrip tactile bench sketch (ESP32 or Arduino Mega + MPR121).
 
 Reads the sketch's CSV mode (`t_us,ch0..ch11`, normalized 0..1) and draws a colour bar
 graph in the terminal, one column per copper strip, left to right. Optionally tees the
