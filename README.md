@@ -98,7 +98,8 @@ egogrip/
 ├── app-native/        native Android (Kotlin) capture app — serial + episodes  [WORKING]
 ├── app/               Unity APK (in-VR GUI + pose + enterprise camera)  [scaffold]
 ├── native-plugin/     Android AAR: UVC cameras + USB-serial bridge      [scaffold]
-├── firmware/          RP2040 — CircuitPython ref [WORKING] + Arduino-Pico/AS5600 [building]
+├── firmware/          RP2040 — CircuitPython ref [WORKING] + Arduino-Pico/AS5600 [building];
+│                      mega-tactile/ — Mega+MPR121 tactile bench rig      [WORKING]
 ├── pipeline/          Python: raw capture → LeRobot dataset             [WORKING]
 ├── hardware/          mock-gripper CAD plan + BOM
 ├── schema/            capture config + episode manifest formats (JSON Schema)

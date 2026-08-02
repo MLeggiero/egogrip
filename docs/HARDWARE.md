@@ -15,7 +15,8 @@ See [hardware/bom.csv](../hardware/bom.csv) for the line-item version. Summary:
 | Connectivity | **Powered** USB-C hub with PD pass-through | fixes EgoKit battery-drain; charges headset while recording |
 | | USB-C cable (data + PD) | host → hub |
 | Wrist camera | UVC camera module + wide/fisheye lens | global shutter preferred; UVC mandatory |
-| Tactile (reference) | FSR / capacitive / magnetic (AnySkin) pad array | read by MCU ADC; pluggable |
+| Tactile (reference) | FSR / capacitive / magnetic (AnySkin) pad array | read by MCU ADC or I²C; pluggable |
+| | MPR121 breakout ("HW-017") + 12 copper strips | 12-ch capacitive array; bench rig in [firmware/mega-tactile](../firmware/mega-tactile/) |
 | MCU | **RP2040 (Raspberry Pi Pico)** | USB-CDC to hub; ADC + PIO encoder |
 | Gripper width | quadrature encoder (or hall / linear pot) | jaw opening → counts |
 | Sync (optional) | LED + resistor on a GPIO | Tier-2 hardware sync (see SYNC.md) |
@@ -51,7 +52,10 @@ and mount interfaces are defined first so firmware/app work can proceed in paral
   ADC.
 - **Tactile:** reference is an analog pad array on the **ADC** (mux if >3 channels) or a
   digital sensor over I²C/SPI. The firmware exposes channels generically; the *meaning* is
-  declared in the manifest by the active sensor plugin.
+  declared in the manifest by the active sensor plugin. The current build is a **12-channel
+  MPR121** capacitive array (copper strips under a grounded plate, silicone dielectric) — it
+  shares the I²C bus with the AS5600 at a different address. Bring-up rig, normalization and
+  the mechanical gotchas: [firmware/mega-tactile](../firmware/mega-tactile/).
 - **Sync LED:** one GPIO drives an LED in camera view; the same event is emitted on serial.
 - **Transport:** USB-CDC framed packets, each carrying the MCU `micros()` counter (for the
   Tier-1 clock regression). Protocol in
