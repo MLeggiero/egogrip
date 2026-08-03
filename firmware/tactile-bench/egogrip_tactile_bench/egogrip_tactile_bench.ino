@@ -595,6 +595,14 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   delay(200);
 
+  // Native USB-CDC (Pico, ESP32-S3) does not reset the board when the host opens the port, so
+  // everything setup() prints — the address, the per-channel table — is gone before a monitor
+  // can attach. Wait briefly for the host, but never block a headless boot.
+#if defined(ARDUINO_ARCH_RP2040) || defined(ARDUINO_USB_CDC_ON_BOOT)
+  for (uint32_t t0 = millis(); !Serial && millis() - t0 < 3000;) delay(10);
+  delay(100);
+#endif
+
 #if defined(ARDUINO_ARCH_RP2040)
   EEPROM.begin(EE_SIZE);
   Wire.setSDA(I2C_SDA);   // must be set before begin() on the Arduino-Pico core

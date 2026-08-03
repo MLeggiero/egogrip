@@ -145,6 +145,12 @@ diagnostics table. If it prints `! no MPR121 found on 0x5A-0x5D` it follows with
 scan — stop there and fix power or wiring before anything else. An address outside 0x5A-0x5D
 in that scan means the `ADDR` strap is not on GND.
 
+> On a native-USB board (Pico, ESP32-S3) opening the serial monitor does **not** reset the
+> board the way it does on an AVR, so boot output can be gone before you attach. The sketch
+> waits up to 3 s for the host to open the port to make that unlikely, but if you attach late
+> you will land mid-stream with no banner — that is normal. Press **`d`** for the diagnostics
+> table and **`h`** for the command list at any time.
+
 **Step 2 — is every strip sane?** Look at the boot diagnostics (or press `d`):
 
 ```
