@@ -112,7 +112,7 @@ def main() -> int:
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--port", help="serial port, e.g. /dev/ttyACM0 or COM3")
     src.add_argument("--replay", help="replay a saved CSV instead of reading serial")
-    ap.add_argument("--baud", type=int, default=500000, help="must match SERIAL_BAUD in the sketch")
+    ap.add_argument("--baud", type=int, default=115200, help="must match SERIAL_BAUD in the sketch")
     ap.add_argument("--pitch", type=float, default=5.0, help="strip pitch in mm (centroid scale)")
     ap.add_argument("--save", help="tee the stream to this file")
     ap.add_argument("--no-color", action="store_true")

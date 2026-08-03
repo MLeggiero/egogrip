@@ -104,9 +104,11 @@ pressure sensor. §6 has a test for exactly this.
 
 ```
 Sketch: egogrip_tactile_bench/egogrip_tactile_bench.ino
-Serial Monitor: 500000 baud   (ignored on the Pico — native USB-CDC has no baud rate)
+Serial Monitor: 115200 baud   (ignored on the Pico — native USB-CDC has no baud rate)
 
 Pico:   Board = "Raspberry Pi Pico"  — Arduino-Pico core by earlephilhower
+        NOT another RP2040 board that happens to be nearby in the list.
+        Wrong variant = wrong pin map and clock config = garbage or silence.
 ESP32:  Board = your variant (e.g. "ESP32 Dev Module" / "ESP32S3 Dev Module" / "Nano ESP32")
 Nano:   Board = "Arduino Nano",  Processor = ATmega328P
         (older clones need "ATmega328P (Old Bootloader)" to upload)
@@ -114,9 +116,14 @@ Mega:   Board = "Arduino Mega or Mega 2560",  Processor = ATmega2560
 ```
 
 No libraries to install — the sketch drives the MPR121 register-level over `Wire.h`, and
-handles the board differences (I²C pins, flash-emulated EEPROM) itself. If your serial
-monitor does not offer 500000, change `SERIAL_BAUD` at the top to `115200` and keep CSV
-streaming at or below 100 Hz.
+handles the board differences (I²C pins, flash-emulated EEPROM) itself.
+
+**Garbled characters in the monitor almost always mean one of these two**, not a broken
+sensor: the **wrong board variant** selected (the Arduino-Pico core lists many RP2040 boards
+— RAK11300, Feather, XIAO, Tiny2040 — and picking a neighbour of "Raspberry Pi Pico" gives
+you the wrong pin map and clock), or a **baud mismatch** on a board where baud actually
+matters. `SERIAL_BAUD` is 115200 to match every monitor's default; on an AVR streaming CSV
+above ~100 Hz, raise both it and the monitor to 500000 together.
 
 **On the Pico**, install the Arduino-Pico core by earlephilhower — the same core the gripper
 firmware uses, and the one whose `Wire.setSDA()/setSCL()` API this sketch calls. In the IDE,

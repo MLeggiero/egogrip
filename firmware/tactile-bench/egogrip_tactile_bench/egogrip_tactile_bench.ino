@@ -69,8 +69,10 @@
 
 static const uint8_t N_CH = 12;             // ELE0..ELE11, index 0 = leftmost strip
 static const float PITCH_MM = 5.0f;         // strip centre-to-centre spacing, for the centroid
-static const long SERIAL_BAUD = 500000;     // ignored on Pico (native USB-CDC runs at USB speed);
-                                            // drop to 115200 if an AVR's monitor lacks 500000
+// 115200 because it is the one rate every monitor defaults to — a mismatch here looks exactly
+// like a broken sensor. Ignored entirely on Pico/ESP32-S3 native USB-CDC, which run at USB
+// speed regardless. On an AVR, raise this to 500000 if you want CSV above ~100 Hz.
+static const long SERIAL_BAUD = 115200;
 static const uint16_t DEFAULT_SPAN = 80;    // counts of delta treated as "full scale" pre-calibration
 static const uint16_t SAMPLE_HZ_DEFAULT = 200;
 static const uint8_t PRINT_HZ = 20;         // heat-mode redraw rate (terminals hate 200 Hz)
