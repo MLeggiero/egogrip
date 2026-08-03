@@ -82,6 +82,7 @@ static const uint8_t PRINT_HZ = 20;         // heat-mode redraw rate (terminals 
 // instead: we only re-learn the baseline while a channel is idle.
 static const bool BASE_TRACK_DEFAULT = true;
 static const float BASE_TRACK_ALPHA = 0.0005f;  // ~10 s time constant at 200 Hz
+static const float BASE_DRIFT_FRACTION = 0.1f;  // ~100 s for signal below the contact threshold
 static const float NOISE_GATE_SIGMA = 3.0f;     // gate = max(GATE_MIN, 3 sigma)
 static const float NOISE_GATE_MIN = 2.0f;
 
@@ -379,10 +380,19 @@ static Frame compute() {
       f.active++;
       wsum += n;
       wpos += n * (i * PITCH_MM);
-    } else if (base_track && !calibrating && delta < gate[i] && delta > -gate[i]) {
-      // idle: let the baseline creep with temperature/humidity. A real press is outside the
-      // gate on the positive side and is never tracked out.
-      base[i] += ((float)filt[i] - base[i]) * BASE_TRACK_ALPHA;
+    }
+
+    // Baseline re-learning, in three bands. Tracking only while strictly idle was a mistake:
+    // once slow drift (temperature, humidity, silicone creep) pushed delta past the gate,
+    // tracking stopped and the channel sat on a phantom pressure that only grew.
+    //   idle           -> re-learn at the normal rate
+    //   below contact  -> still drift, not a press: leak it out, an order slower
+    //   at/above ON    -> a real press, never tracked out
+    if (base_track && !calibrating) {
+      if (delta <= gate[i] && delta >= -gate[i])
+        base[i] += ((float)filt[i] - base[i]) * BASE_TRACK_ALPHA;
+      else if (n > 0 && n < ON_THRESH)
+        base[i] += ((float)filt[i] - base[i]) * (BASE_TRACK_ALPHA * BASE_DRIFT_FRACTION);
     }
     norm[i] = n;
     f.total += n;
@@ -460,6 +470,7 @@ static void print_heat(const Frame &f) {
   for (uint8_t i = 0; i < N_CH; i++) {
     uint8_t idx = (uint8_t)(norm[i] * 10.0f + 0.5f);
     if (idx > 10) idx = 10;
+    if (idx == 0 && norm[i] > 0) idx = 1;  // any signal above the gate gets a mark, not a blank
     Serial.print(RAMP[idx]);
     Serial.print(' ');
   }
