@@ -127,6 +127,17 @@ static const uint8_t AC_USL = 202, AC_TL = 181, AC_LSL = 131;
 
 enum Mode { M_QUIET = 0, M_HEAT = 1, M_PLOT = 2, M_CSV = 3, M_RAW = 4 };
 
+// Keep this ABOVE every function that names it. The Arduino IDE auto-generates prototypes and
+// injects them just below the last preprocessor directive, so a type declared further down the
+// .ino is not visible to its own generated prototype: "'Frame' does not name a type".
+struct Frame {
+  float total;      // sum of normalized channels ~ total force proxy
+  float peak;       // strongest single channel
+  uint8_t peak_ch;
+  uint8_t active;   // channels above their gate
+  float centroid;   // mm from the leftmost strip, valid only when active > 0
+};
+
 static uint8_t i2c_addr = 0;                // 0 = not found yet
 static Mode mode = M_HEAT;
 static uint16_t sample_hz = SAMPLE_HZ_DEFAULT;
@@ -354,14 +365,6 @@ static void calib_finish() {
 }
 
 // ---------------------------------------------------------------- per-frame derived values
-
-struct Frame {
-  float total;      // sum of normalized channels ~ total force proxy
-  float peak;       // strongest single channel
-  uint8_t peak_ch;
-  uint8_t active;   // channels above their gate
-  float centroid;   // mm from the leftmost strip, valid only when active > 0
-};
 
 static Frame compute() {
   Frame f = {0, 0, 0, 0, 0};
