@@ -13,12 +13,16 @@
  * protocol in ../rp2040-gripper/README.md. It exists to answer "does my sensor actually work,
  * and what dynamic range does each channel have?" before that data is worth streaming.
  *
- * !! The MPR121 is a 3.3 V PART !!
- *   ESP32 — 3.3 V logic, wire it straight through. Preferred board.
- *   Mega  — 5 V logic. Power the breakout from 3V3 (never 5V) and either fit a level shifter
- *           on SDA/SCL or leave DISABLE_INTERNAL_PULLUPS set (see README.md §1).
+ * !! The MPR121 is a 3.3 V PART — check which side of this line your board is on !!
+ *   3.3 V logic, wire straight through: ESP32, Nano ESP32, Nano 33 IoT/BLE, Nano RP2040.
+ *   5 V logic, needs care: Mega 2560, Nano (classic ATmega328P), Nano Every.
+ *       Power the breakout from 3V3 (never 5V) and either fit a level shifter on SDA/SCL or
+ *       leave DISABLE_INTERNAL_PULLUPS set (see README.md §1).
+ *   A classic Arduino Nano is a 5 V board. Its "3V3" pin is an output from the USB-serial
+ *   chip, not a sign that the I/O pins are 3.3 V — they are not.
  *
- * Wiring: VCC->3V3, GND->GND, ground plate -> the same GND, SDA/SCL per the table below.
+ * Wiring: VCC->3V3, GND->GND, ground plate -> the same GND. I2C is SDA/SCL for your board
+ * (A4/A5 on a Nano, 20/21 on a Mega) and is printed at boot, so you can confirm it there.
  * IRQ unused (this sketch polls). Send 'h' over serial for the command list.
  *
  * On ESP32, leave WiFi and Bluetooth off. Both radios inject noise straight into a
