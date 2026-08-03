@@ -553,7 +553,7 @@ static void print_diag() {
 }
 
 static void print_help() {
-  Serial.println(F("--- egogrip tactile bench (Mega + MPR121) ---"));
+  Serial.println(F("--- egogrip tactile bench / MPR121 12-ch array ---"));
   Serial.println(F(" 1  heat map (default)   2  serial-plotter   3  csv stream"));
   Serial.println(F(" 4  raw counts           0  quiet (events only)"));
   Serial.println(F(" z  re-zero baseline (hands off!)   c  calibrate spans (8 s)"));
