@@ -23,14 +23,26 @@ cost you a chip:
 
 | Board | Logic | I²C pins | Notes |
 |---|---|---|---|
+| **Raspberry Pi Pico (RP2040)** | **3.3 V** | **GP4 / GP5** | **use this one** — see below |
 | ESP32 DevKit (classic) | **3.3 V** | 21 / 22 | wire straight through |
-| ESP32-S2 / S3 / C3 | **3.3 V** | 8 / 9 | ditto; S3 is the project's upgrade path ([D8](../../docs/DESIGN_DECISIONS.md)) |
-| Nano ESP32 | **3.3 V** | A4 / A5 | an ESP32-S3 in a Nano footprint — the best of both |
+| ESP32-S2 / S3 / C3 | **3.3 V** | 8 / 9 | ditto; S3 is the documented wireless upgrade path ([D8](../../docs/DESIGN_DECISIONS.md)) |
+| Nano ESP32 | **3.3 V** | A4 / A5 | an ESP32-S3 in a Nano footprint |
 | Nano 33 IoT / RP2040 Connect | **3.3 V** | A4 / A5 | wire straight through |
 | Nano 33 BLE / BLE Sense | **3.3 V** | A4 / A5 | **not 5 V tolerant** — never feed it 5 V |
 | **Nano (classic, ATmega328P)** | **5 V** | **A4 / A5** | works fine, but see the 5 V caution in §1 |
 | Nano Every (ATmega4809) | **5 V** | A4 / A5 | same caution |
 | Mega 2560 | **5 V** | 20 / 21 | same caution |
+
+**If you have a Pico, use the Pico.** It is not just another 3.3 V board — it is the project's
+production MCU ([D8](../../docs/DESIGN_DECISIONS.md)), and the sketch puts the MPR121 on
+**I²C0, GP4/GP5: the exact bus and pins the AS5600 gripper firmware already uses**
+([../rp2040-gripper/arduino/](../rp2040-gripper/arduino/)). The encoder answers at `0x36` and
+the MPR121 at `0x5A`, so they share the bus with no conflict and no rewiring. That makes this
+bench setup the real gripper wiring rather than a throwaway rig, and the tactile front end
+merges into `egogrip_gripper.ino` as `T_TACTILE` frames without moving a single wire.
+
+It also has native USB-CDC — which is what the headset needs on the other end of the hub, and
+what a classic ESP32's CP2102/CH340 bridge is not.
 
 **A classic Arduino Nano is a 5 V board.** Its `3V3` pin is an *output* from the USB-serial
 chip's regulator — handy for powering the breakout, but it says nothing about the I/O pins,
@@ -54,8 +66,8 @@ moved before trusting the data.
 |---|---|
 | `VCC` / `3V3`  | your board's **3V3** pin — never `5V` |
 | `GND`          | GND |
-| `SDA`          | `SDA` for your board (§0 table: **A4** on a Nano, **20** on a Mega, **21** on classic ESP32) |
-| `SCL`          | `SCL` for your board (**A5** / **21** / **22**) |
+| `SDA`          | §0 table: **GP4** on a Pico, **A4** on a Nano, **20** on a Mega, **21** on classic ESP32 |
+| `SCL`          | **GP5** / **A5** / **21** / **22** |
 | `IRQ`          | not connected — this sketch polls |
 | `ELE0…ELE11`   | the copper strips, **ELE0 = leftmost** |
 | — | **ground plate → the same GND** |
@@ -92,11 +104,12 @@ pressure sensor. §6 has a test for exactly this.
 
 ```
 Sketch: egogrip_tactile_bench/egogrip_tactile_bench.ino
-Serial Monitor: 500000 baud
+Serial Monitor: 500000 baud   (ignored on the Pico — native USB-CDC has no baud rate)
 
+Pico:   Board = "Raspberry Pi Pico"  — Arduino-Pico core by earlephilhower
+ESP32:  Board = your variant (e.g. "ESP32 Dev Module" / "ESP32S3 Dev Module" / "Nano ESP32")
 Nano:   Board = "Arduino Nano",  Processor = ATmega328P
         (older clones need "ATmega328P (Old Bootloader)" to upload)
-ESP32:  Board = your variant (e.g. "ESP32 Dev Module" / "ESP32S3 Dev Module" / "Nano ESP32")
 Mega:   Board = "Arduino Mega or Mega 2560",  Processor = ATmega2560
 ```
 
@@ -104,6 +117,23 @@ No libraries to install — the sketch drives the MPR121 register-level over `Wi
 handles the board differences (I²C pins, flash-emulated EEPROM) itself. If your serial
 monitor does not offer 500000, change `SERIAL_BAUD` at the top to `115200` and keep CSV
 streaming at or below 100 Hz.
+
+**On the Pico**, install the Arduino-Pico core by earlephilhower — the same core the gripper
+firmware uses, and the one whose `Wire.setSDA()/setSCL()` API this sketch calls. In the IDE,
+add this to **Preferences ▸ Additional Board Manager URLs** and install **rp2040**:
+
+```
+https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+```
+
+Or build a `.uf2` headlessly, exactly as the gripper firmware does:
+
+```bash
+arduino-cli compile -b rp2040:rp2040:rpipico --output-dir build egogrip_tactile_bench
+# hold BOOTSEL while plugging in, then copy build/*.uf2 onto the RPI-RP2 drive
+```
+
+The official Arduino Mbed RP2040 core will *not* build this — it lacks `Wire.setSDA()`.
 
 Also set `PITCH_MM` to your real strip centre-to-centre spacing; it only scales the reported
 contact centroid.
@@ -285,8 +315,13 @@ pipeline expects for `tactile.csv` (`monotonic_ns, ch0 … chN`, see
 [../../docs/DATA_FORMAT.md](../../docs/DATA_FORMAT.md)); only the timestamp column changes,
 from MCU `micros()` to the headset's monotonic clock.
 
-That MCU is the RP2040 today ([D8](../../docs/DESIGN_DECISIONS.md)). If you bench this on an
-ESP32 and want to keep it, an **ESP32-S3** is already the documented upgrade path — it has
-native USB-CDC (which the classic ESP32's CP2102/CH340 bridge does not) and that is what the
+That MCU is the RP2040 today ([D8](../../docs/DESIGN_DECISIONS.md)), so **if you benched on a
+Pico there is nothing to port** — the MPR121 is already on I²C0/GP4/GP5 alongside the AS5600,
+and merging means adding a `T_TACTILE` emitter to `egogrip_gripper.ino` with the normalization
+above. Keep the framed protocol's `i16` channels as `norm × 10000` so the wire format stays
+integer and unit-free.
+
+If you benched on an ESP32 instead, an **ESP32-S3** is the documented upgrade path — it has
+native USB-CDC (which the classic ESP32's CP2102/CH340 bridge does not), and that is what the
 headset needs on the other end of the hub. A classic ESP32 is a fine bench host but is not a
 drop-in for the gripper.

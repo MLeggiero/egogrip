@@ -14,7 +14,7 @@
  * and what dynamic range does each channel have?" before that data is worth streaming.
  *
  * !! The MPR121 is a 3.3 V PART — check which side of this line your board is on !!
- *   3.3 V logic, wire straight through: ESP32, Nano ESP32, Nano 33 IoT/BLE, Nano RP2040.
+ *   3.3 V logic, wire straight through: Pico/RP2040, ESP32, Nano ESP32, Nano 33, Nano RP2040.
  *   5 V logic, needs care: Mega 2560, Nano (classic ATmega328P), Nano Every.
  *       Power the breakout from 3V3 (never 5V) and either fit a level shifter on SDA/SCL or
  *       leave DISABLE_INTERNAL_PULLUPS set (see README.md §1).
@@ -22,8 +22,8 @@
  *   chip, not a sign that the I/O pins are 3.3 V — they are not.
  *
  * Wiring: VCC->3V3, GND->GND, ground plate -> the same GND. I2C is SDA/SCL for your board
- * (A4/A5 on a Nano, 20/21 on a Mega) and is printed at boot, so you can confirm it there.
- * IRQ unused (this sketch polls). Send 'h' over serial for the command list.
+ * (GP4/GP5 on a Pico, A4/A5 on a Nano, 20/21 on a Mega) and is printed at boot, so you can
+ * confirm it there. IRQ unused (this sketch polls). Send 'h' over serial for the commands.
  *
  * On ESP32, leave WiFi and Bluetooth off. Both radios inject noise straight into a
  * high-impedance capacitive front end; neither is started unless you ask for it.
@@ -33,7 +33,21 @@
 
 // ---------------------------------------------------------------- board differences
 
-#if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_RP2040)
+// I2C0 on GP4/GP5 — deliberately the same bus and pins as the AS5600 gripper firmware
+// (../../rp2040-gripper/arduino/). The MPR121 sits at 0x5A and the encoder at 0x36, so both
+// share the bus with no conflict and this bench wiring is already the gripper wiring.
+// Requires the Arduino-Pico core (earlephilhower), which the rest of the repo standardizes on.
+#ifndef I2C_SDA
+#define I2C_SDA 4
+#endif
+#ifndef I2C_SCL
+#define I2C_SCL 5
+#endif
+#define EE_SIZE 256         // flash-emulated EEPROM: must be sized up front and committed
+#define EE_COMMIT() EEPROM.commit()
+
+#elif defined(ARDUINO_ARCH_ESP32)
 // The core's default I2C pins vary by variant: 21/22 on classic ESP32, 8/9 on S2/S3/C3.
 // Override here if your board breaks them out elsewhere; the pins in use are printed at boot.
 #ifndef I2C_SDA
@@ -44,8 +58,9 @@
 #endif
 #define EE_SIZE 64          // ESP32 "EEPROM" is emulated in flash and must be sized + committed
 #define EE_COMMIT() EEPROM.commit()
+
 #else
-#define I2C_SDA SDA         // Mega 2560: 20 / 21, fixed by the TWI peripheral
+#define I2C_SDA SDA         // AVR: Mega 20/21, Nano A4/A5 — fixed by the TWI peripheral
 #define I2C_SCL SCL
 #define EE_COMMIT() ((void)0)
 #endif
@@ -54,7 +69,8 @@
 
 static const uint8_t N_CH = 12;             // ELE0..ELE11, index 0 = leftmost strip
 static const float PITCH_MM = 5.0f;         // strip centre-to-centre spacing, for the centroid
-static const long SERIAL_BAUD = 500000;     // drop to 115200 if your monitor lacks 500000
+static const long SERIAL_BAUD = 500000;     // ignored on Pico (native USB-CDC runs at USB speed);
+                                            // drop to 115200 if an AVR's monitor lacks 500000
 static const uint16_t DEFAULT_SPAN = 80;    // counts of delta treated as "full scale" pre-calibration
 static const uint16_t SAMPLE_HZ_DEFAULT = 200;
 static const uint8_t PRINT_HZ = 20;         // heat-mode redraw rate (terminals hate 200 Hz)
@@ -579,7 +595,12 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   delay(200);
 
-#if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_RP2040)
+  EEPROM.begin(EE_SIZE);
+  Wire.setSDA(I2C_SDA);   // must be set before begin() on the Arduino-Pico core
+  Wire.setSCL(I2C_SCL);
+  Wire.begin();
+#elif defined(ARDUINO_ARCH_ESP32)
   EEPROM.begin(EE_SIZE);
   Wire.begin(I2C_SDA, I2C_SCL);
 #else
