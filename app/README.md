@@ -57,9 +57,10 @@ the Console has no red errors. Full build/sideload steps: [../docs/UNITY_POSE_SE
   - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
     Essential Resources* — without the import TMP renders nothing (layout is still correct).
   - **Rebuild the AAR** for serial/ego recording: Android Studio → build `:capture` in `app-native/`
-    → drop `egogrip-capture.aar` into `Assets/Plugins/Android/`. The serial lib is on jitpack; if the
-    Unity build can't resolve `com.github.mik3y:usb-serial-for-android`, add a Custom Gradle Settings
-    Template with `maven { url 'https://www.jitpack.io' }` or bundle its `.aar` in `Plugins/Android/`.
+    → drop `egogrip-capture.aar` into `Assets/Plugins/Android/`. The serial lib
+    (`com.github.mik3y:usb-serial-for-android`) is jitpack-only, which Unity's Gradle doesn't search,
+    so it's **vendored** as `Plugins/Android/usb-serial-for-android-3.8.1.aar` (Unity auto-includes it)
+    rather than declared as a coordinate — no Custom Gradle Settings Template needed.
   - Requires **`com.unity.ugui`** (in the manifest) and a one-time *Window ▸ TextMeshPro ▸ Import TMP
     Essential Resources* — without the import TMP renders nothing (layout is still correct).
 - **Calibration mode**: run/refresh `calibration.json`; quick "calibration check" before a
