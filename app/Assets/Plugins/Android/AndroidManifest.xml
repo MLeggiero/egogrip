@@ -1,25 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Unity-only Android manifest additions (merged into the generated Unity APK manifest).
-     This grafts a USB_DEVICE_ATTACHED intent-filter + device_filter onto Unity's launcher activity
-     so attaching a UVC camera auto-grants USB permission (with the user's one-time "always" tick)
-     and can auto-launch the app. It lives HERE (not in the shared egogrip-capture.aar) because it
-     targets the Unity player activity, which only exists in the Unity build — putting it in the AAR
-     broke the standalone native app's manifest merge (Android-12 android:exported check).
+<!-- MAIN Android manifest for the Unity APK.
+
+     ⚠ This file REPLACES Unity's generated launcher manifest (Editor/Data/PlaybackEngines/
+     AndroidPlayer/Apk/UnityManifest.xml) — it is NOT an overlay. Anything Unity's default
+     provides must be restated here or it is silently dropped from the APK. AAR manifests
+     (egogrip-capture, PICO SDK, usb-serial) still merge INTO this one, which is why the
+     pvr.* meta-data and Unity's activity attributes do not need repeating.
+
+     The MAIN/LAUNCHER intent-filter below is mandatory: without it "Build and Run" fails with
+     "No activity in the manifest with action MAIN and category LAUNCHER" and the app has no
+     icon in the PICO library.
+
+     The second intent-filter grafts USB_DEVICE_ATTACHED + device_filter onto the same activity
+     so attaching a UVC camera auto-grants USB permission (with the user's one-time "always"
+     tick) and can auto-launch the app. It lives HERE (not in the shared egogrip-capture.aar)
+     because it targets the Unity player activity, which only exists in the Unity build —
+     putting it in the AAR broke the standalone native app's manifest merge (Android-12
+     android:exported check).
 
      @xml/device_filter is supplied by egogrip-capture.aar (capture/src/main/res/xml/device_filter.xml).
 
      ⚠ VERIFY the activity name against Player Settings ▸ Other Settings ▸ Application Entry Point:
-       - "Activity"     → com.unity3d.player.UnityPlayerActivity  (used below)
-       - "GameActivity" → com.unity3d.player.UnityPlayerGameActivity  (rename the android:name below) -->
+       - "Activity"     → com.unity3d.player.UnityPlayerActivity  (used below; currently set)
+       - "GameActivity" → com.unity3d.player.UnityPlayerGameActivity  (also swap the theme to
+                          @style/BaseUnityGameActivityTheme and add
+                          <meta-data android:name="android.app.lib_name" android:value="game" />) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application>
         <activity android:name="com.unity3d.player.UnityPlayerActivity"
+            android:theme="@style/UnityThemeSelector"
             android:exported="true"
             tools:node="merge">
             <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
+            <meta-data android:name="unityplayer.UnityActivity" android:value="true" />
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />

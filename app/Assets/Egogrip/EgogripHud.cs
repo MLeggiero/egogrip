@@ -7,38 +7,48 @@ using UnityEngine.XR;
 namespace Egogrip
 {
     /// <summary>
-    /// The in-VR HUD: a code-generated, head-locked world-space uGUI Canvas (TextMeshPro text +
-    /// RawImage camera feeds) laid out in FIXED ZONES — a given sensor/feed always lives in the same
-    /// spot, and toggling a sensor greys its slot/row IN PLACE (nothing reflows). Built entirely at
-    /// runtime, so there are no prefabs to author; drop this on a GameObject (it's on EgogripRecorder).
+    /// The in-VR HUD: a code-generated world-space uGUI Canvas (TextMeshPro text + RawImage camera
+    /// feeds) laid out in FIXED ZONES — a given sensor/feed always lives in the same spot, and
+    /// toggling a sensor greys its slot/row IN PLACE (nothing reflows). Built entirely at runtime,
+    /// so there are no prefabs to author; drop this on a GameObject (it's on EgogripRecorder).
     ///
-    /// Requires the UI + TextMeshPro package (com.unity.ugui) and a one-time
-    /// "Window ▸ TextMeshPro ▸ Import TMP Essential Resources" (creates the default SDF font). Without
-    /// that import TMP renders nothing — the layout is still correct.
+    /// Requires the UI + TextMeshPro package (com.unity.ugui) and TMP Essential Resources
+    /// (Assets/TextMesh Pro/). Without them every TextMeshProUGUI throws in Awake and the panel
+    /// renders as empty grey boxes.
     ///
-    /// Zones: status bar · video zone (ego + wrist RawImage slots) · sensor roster (right) · signals
-    /// strip · device/controls. Two states: while recording the roster hides (you can't toggle
-    /// mid-take); video/signals/status stay put so feeds never jump between config and capture.
+    /// Placement: HEAD-LOCKED by default — the panel glides to stay in front of you wherever you
+    /// walk or look (see FollowHead). A B/Y tap pins it in world space instead; while pinned, a B/Y
+    /// hold drags it.
+    ///
+    /// Zones (top→bottom): status bar · video band (ego + wrist tiles SIDE BY SIDE so each keeps its
+    /// camera aspect ratio) · sensor roster (left) + signals (right) · device/controls. While
+    /// recording the roster hides — you can't toggle sensors, or quit, mid-take.
     ///
     /// Interaction: thumbstick moves a highlight over the roster; grip toggles the selected sensor
-    /// (idle-only); A/X records (EgogripPoseRecorder).
+    /// (idle-only); A/X records (EgogripPoseRecorder); holding grip on the EXIT row quits the app.
     /// </summary>
     public class EgogripHud : MonoBehaviour
     {
-        [Header("Placement (world-anchored)")]
-        [Tooltip("How far in front of you the panel spawns / recenters (metres).")]
+        [Header("Placement (head-locked)")]
+        [Tooltip("The panel follows your view and stays this far in front of you (metres).")]
         public float viewDistance = 0.8f;
-        [Tooltip("How far in front of the controller the panel floats while dragging (metres).")]
+        [Tooltip("Metres to drop the panel below the centre of your view, so it doesn't cover the task.")]
+        public float verticalOffset = -0.10f;
+        [Tooltip("How quickly the panel catches up to your head. Higher = stiffer, lower = floatier.")]
+        public float followSharpness = 10f;
+        [Tooltip("Follow the head. B/Y pins it in place (and back). Pinned = the old world-anchored behaviour.")]
+        public bool followHead = true;
+        [Tooltip("How far in front of the controller the panel floats while dragging (pinned only).")]
         public float grabDistance = 0.3f;
-        public Vector2 canvasSize = new Vector2(1100f, 640f);
-        [Tooltip("Metres per canvas unit (1100×640 * 0.00055 ≈ 0.6 m wide).")]
+        public Vector2 canvasSize = new Vector2(1100f, 820f);
+        [Tooltip("Metres per canvas unit (1100×820 * 0.00055 ≈ 0.6 × 0.45 m).")]
         public float canvasScale = 0.00055f;
-        [Tooltip("Right edge of the video zone as a fraction of panel width (roster takes the rest).")]
-        public float videoZoneRight = 0.66f;
         [Tooltip("Max wrist-camera tiles shown in the video zone.")]
         public int maxWristSlots = 4;
         [Tooltip("Camera-feed texture refresh rate (Hz). Cameras still record every frame regardless.")]
         public float previewHz = 15f;
+        [Tooltip("Seconds to hold grip on the EXIT row before the app quits (guards against a misclick).")]
+        public float exitHoldSeconds = 1.0f;
 
         // palette
         static readonly Color Panel  = new Color(0.03f, 0.04f, 0.06f, 0.74f);
@@ -66,7 +76,7 @@ namespace Egogrip
         private readonly List<Slot> _wristSlots = new List<Slot>();
 
         // roster
-        private enum RowKind { InputMode, Controller, Head, WristCam, Ego, Serial }
+        private enum RowKind { InputMode, Controller, Head, WristCam, Ego, Serial, Exit }
         private class Row
         {
             public RowKind kind; public XRNode node; public int camIndex; public int serialIndex;
@@ -86,6 +96,8 @@ namespace Egogrip
         private static readonly XRNode[] BothHands = { XRNode.RightHand, XRNode.LeftHand };
         private readonly List<InputDevice> _devs = new List<InputDevice>();
         private bool _stickLatched, _prevGrip;
+        private float _exitHeld;
+        private bool _exitArmed, _quitting;
         private float _lastVideo;
 
         // world anchoring + B/Y grab (tap = recenter, hold = drag)
@@ -122,22 +134,24 @@ namespace Egogrip
             NewImage(root, "Bg", Panel, new Vector2(0, 0), new Vector2(1, 1), 0f);
 
             // ---- status bar ----
-            var status = NewImage(root, "StatusZone", Zone, new Vector2(0, 0.88f), new Vector2(1, 1f)).rectTransform;
+            var status = NewImage(root, "StatusZone", Zone, new Vector2(0, 0.94f), new Vector2(1, 1f)).rectTransform;
             _statusPill = NewText(status, "Pill", 34, TextAlignmentOptions.MidlineLeft, Ink,
                                   new Vector2(0, 0), new Vector2(0.55f, 1));
             _statusMeta = NewText(status, "Meta", 24, TextAlignmentOptions.MidlineRight, Grey,
                                   new Vector2(0.45f, 0), new Vector2(1, 1));
 
-            // ---- video zone : full-width tiles stacked vertically (wide feeds), ego + wrists ----
-            var video = NewImage(root, "VideoZone", Zone, new Vector2(0, 0.30f), new Vector2(videoZoneRight, 0.88f)).rectTransform;
+            // ---- video zone : FULL-WIDTH band, tiles side by side ----
+            // Stacking full-width bands made every tile ~6:1 — a 4:3 camera squashed to a letterbox
+            // slit. Side-by-side tiles are near-square, so a 4:3 feed fills them properly.
+            var video = NewImage(root, "VideoZone", Zone, new Vector2(0, 0.52f), new Vector2(1, 0.94f)).rectTransform;
             int nWrist = Mathf.Clamp(_cams.Length, 0, maxWristSlots);
-            int nTiles = 1 + nWrist; // ego + wrists, each a full-width landscape band
-            _egoSlot = RowTile(video, "EgoSlot", "EGO", 0, nTiles);
+            int nTiles = 1 + nWrist; // ego + wrists
+            _egoSlot = ColumnTile(video, "EgoSlot", "EGO", 0, nTiles);
             for (int i = 0; i < nWrist; i++)
-                _wristSlots.Add(RowTile(video, $"WristSlot{i}", $"WRIST {i}", i + 1, nTiles));
+                _wristSlots.Add(ColumnTile(video, $"WristSlot{i}", $"WRIST {i}", i + 1, nTiles));
 
-            // ---- roster (right) ----
-            _rosterPanel = NewImage(root, "RosterZone", Zone, new Vector2(videoZoneRight, 0.30f), new Vector2(1, 0.88f)).gameObject;
+            // ---- roster (lower left) ----
+            _rosterPanel = NewImage(root, "RosterZone", Zone, new Vector2(0, 0.09f), new Vector2(0.56f, 0.52f)).gameObject;
             var rosterRt = (RectTransform)_rosterPanel.transform;
             NewText(rosterRt, "RosterHdr", 22, TextAlignmentOptions.TopLeft, Grey,
                     new Vector2(0, 0.92f), new Vector2(1, 1)).text = "SENSORS";
@@ -145,16 +159,16 @@ namespace Egogrip
             Stretch(rosterBody, new Vector2(0, 0), new Vector2(1, 0.92f), 2f);
             BuildRows(rosterBody);
 
-            // ---- signals strip ----
-            var signals = NewImage(root, "SignalsZone", Zone, new Vector2(0, 0.14f), new Vector2(1, 0.30f)).rectTransform;
+            // ---- signals strip (lower right, beside the roster) ----
+            var signals = NewImage(root, "SignalsZone", Zone, new Vector2(0.56f, 0.09f), new Vector2(1, 0.52f)).rectTransform;
             NewText(signals, "SigHdr", 20, TextAlignmentOptions.TopLeft, Grey,
-                    new Vector2(0, 0.55f), new Vector2(1, 1)).text = "SIGNALS";
-            _signalsText = NewText(signals, "SigBody", 24, TextAlignmentOptions.MidlineLeft, Grey,
-                                   new Vector2(0, 0), new Vector2(1, 0.6f));
+                    new Vector2(0, 0.88f), new Vector2(1, 1)).text = "SIGNALS";
+            _signalsText = NewText(signals, "SigBody", 24, TextAlignmentOptions.TopLeft, Grey,
+                                   new Vector2(0, 0), new Vector2(1, 0.88f));
             _signalsText.text = $"<color=#{Hex(Grey)}>gripper width · tactile — serial: pending</color>";
 
             // ---- bottom : device + controls ----
-            var bottom = NewImage(root, "BottomZone", Zone, new Vector2(0, 0), new Vector2(1, 0.14f)).rectTransform;
+            var bottom = NewImage(root, "BottomZone", Zone, new Vector2(0, 0), new Vector2(1, 0.09f)).rectTransform;
             _deviceText = NewText(bottom, "Device", 24, TextAlignmentOptions.MidlineLeft, Ink,
                                   new Vector2(0, 0), new Vector2(0.5f, 1));
             _controlsText = NewText(bottom, "Controls", 22, TextAlignmentOptions.MidlineRight, Grey,
@@ -171,6 +185,7 @@ namespace Egogrip
             for (int i = 0; i < _cams.Length; i++) _rows.Add(new Row { kind = RowKind.WristCam, camIndex = i });
             _rows.Add(new Row { kind = RowKind.Ego });
             for (int i = 0; i < _serial.Length; i++) _rows.Add(new Row { kind = RowKind.Serial, serialIndex = i });
+            _rows.Add(new Row { kind = RowKind.Exit }); // always last — hold grip to quit
 
             int n = _rows.Count;
             for (int i = 0; i < n; i++)
@@ -195,8 +210,9 @@ namespace Egogrip
         private void Update()
         {
             if (_rec == null) return;
-            if (!_placed) PlaceInFront();        // retry until the head camera exists
-            HandleGrab();                        // B/Y: tap = recenter, hold = drag (allowed anytime)
+            if (followHead) FollowHead();        // head-locked: stays in view wherever you go
+            else if (!_placed) PlaceInFront();   // pinned: retry until the head camera exists
+            HandlePin();                         // B/Y: tap = pin/unpin, hold = drag (pinned only)
             bool rec = _rec.IsRecording;
             bool handsMode = _rec.inputSource == EgogripPoseRecorder.InputSource.Hands;
 
@@ -236,18 +252,21 @@ namespace Egogrip
             // ▶ U+25B6 and ⏻ U+23FB are NOT in it and showed as □ boxes on-device).
             _controlsText.text = rec
                 ? $"<color=#{Hex(Red)}>●</color> recording…   A/X: stop"
-                : "A/X: rec    stick ▲▼ select    grip: toggle";
+                : $"A/X: rec   stick ▲▼ select   grip: toggle   B/Y: {(followHead ? "pin" : "unpin")}";
         }
 
         private void UpdateVideo()
         {
-            // ego — simulated feed now; real enterprise frames once access lands
+            // ego — real XR_PICO_camera_image frames when the runtime grants them, synthetic otherwise
             if (_ego != null && _ego.captureEnabled && _ego.Active)
+            {
+                _egoSlot.label.text = _ego.simulate ? "EGO (sim)" : "EGO";
                 DrawSlot(_egoSlot, true, _ego.PreviewWidth(), _ego.PreviewHeight(), _ego.LatestFrame(), null, Grey);
+            }
             else if (_ego != null && !_ego.captureEnabled)
                 DrawSlot(_egoSlot, false, 0, 0, null, "disabled", Grey);
             else
-                DrawSlot(_egoSlot, false, 0, 0, null, "enterprise\naccess pending", Amber);
+                DrawSlot(_egoSlot, false, 0, 0, null, _ego != null ? _ego.StatusText : "no ego source", Amber);
 
             for (int i = 0; i < _wristSlots.Count; i++)
             {
@@ -274,15 +293,30 @@ namespace Egogrip
                 s.img.color = Color.white;
                 s.tex.LoadRawTextureData(frame);
                 s.tex.Apply(false);
+                FitSlot(s, w, h);
                 s.state.text = "";
             }
             else
             {
                 s.img.texture = null;
                 s.img.color = SlotBg;
+                s.img.rectTransform.sizeDelta = Vector2.zero;
                 s.state.text = msg;
                 s.state.color = msgColor;
             }
+        }
+
+        // Letterbox the feed inside its tile at the camera's true aspect ratio — biggest size that
+        // fits, never stretched. Without this a 4:3 feed is distorted to whatever shape the tile is.
+        private static void FitSlot(Slot s, int w, int h)
+        {
+            var rt = s.img.rectTransform;
+            if (!(rt.parent is RectTransform parent)) return;
+            float pw = parent.rect.width - 6f, ph = parent.rect.height - 6f;
+            if (pw <= 0f || ph <= 0f) return;
+            float scale = Mathf.Min(pw / w, ph / h);
+            var size = new Vector2(w * scale, h * scale);
+            if ((rt.sizeDelta - size).sqrMagnitude > 0.5f) rt.sizeDelta = size;
         }
 
         private void UpdateRows(bool handsMode)
@@ -334,10 +368,22 @@ namespace Egogrip
                         r.label.text = "ego cam";
                         if (_ego == null) { r.dot.color = Grey; r.state.text = "—"; r.state.color = Grey; }
                         else if (!_ego.captureEnabled) { r.dot.color = Grey; r.state.text = "off"; r.state.color = Grey; }
-                        else if (_ego.simulate) { r.dot.color = Amber; r.state.text = "simulate"; r.state.color = Amber; }
-                        else if (_ego.Active) { r.dot.color = Green; r.state.text = $"on · {_ego.PreviewWidth()}×{_ego.PreviewHeight()}"; r.state.color = Ink; }
-                        else { r.dot.color = Grey; r.state.text = "enterprise: pending"; r.state.color = Amber; }
+                        else if (!_ego.simulate && _ego.Active) { r.dot.color = Green; r.state.text = $"live · {_ego.PreviewWidth()}×{_ego.PreviewHeight()}"; r.state.color = Ink; }
+                        else { r.dot.color = Amber; r.state.text = _ego.StatusText; r.state.color = Amber; }
                         break;
+
+                    case RowKind.Exit:
+                    {
+                        r.label.text = "exit app";
+                        bool armed = _rows[_cursor] == r && _exitHeld > 0f;
+                        if (armed)
+                        {
+                            int pct = Mathf.RoundToInt(100f * Mathf.Clamp01(_exitHeld / Mathf.Max(0.05f, exitHoldSeconds)));
+                            r.dot.color = Red; r.state.text = $"quitting… {pct}%"; r.state.color = Red;
+                        }
+                        else { r.dot.color = Grey; r.state.text = "hold grip"; r.state.color = Grey; }
+                        break;
+                    }
 
                     case RowKind.Serial:
                     {
@@ -387,8 +433,30 @@ namespace Egogrip
             _placed = true;
         }
 
-        // B/Y (secondaryButton): a quick tap recenters in front; a hold drags the panel with the controller.
-        private void HandleGrab()
+        // Head-locked: glide to sit in front of the head every frame, so the panel is always in view
+        // no matter where you walk or turn. Exponential smoothing (frame-rate independent) keeps it
+        // from feeling rigidly welded to your face.
+        private void FollowHead()
+        {
+            var cam = Camera.main;
+            if (cam == null || _canvasRt == null) return;
+            var t = cam.transform;
+            Vector3 target = t.position + t.forward * viewDistance + t.up * verticalOffset;
+            Quaternion targetRot = Quaternion.LookRotation(target - t.position, t.up);
+            if (!_placed)
+            {
+                _canvasRt.SetPositionAndRotation(target, targetRot);
+                _placed = true;
+                return;
+            }
+            float k = 1f - Mathf.Exp(-Mathf.Max(0.1f, followSharpness) * Time.deltaTime);
+            _canvasRt.position = Vector3.Lerp(_canvasRt.position, target, k);
+            _canvasRt.rotation = Quaternion.Slerp(_canvasRt.rotation, targetRot, k);
+        }
+
+        // B/Y (secondaryButton): a quick tap pins the panel in place / releases it back to head-lock;
+        // while pinned, a hold drags it with the controller.
+        private void HandlePin()
         {
             bool by = false; XRNode node = XRNode.RightHand;
             foreach (var n in BothHands)
@@ -400,12 +468,13 @@ namespace Egogrip
             if (by)
             {
                 if (!_byDown) { _byDown = true; _byStart = Time.realtimeSinceStartup; _dragging = false; _grabNode = node; }
-                else if (Time.realtimeSinceStartup - _byStart > 0.15f) _dragging = true;
+                else if (!followHead && Time.realtimeSinceStartup - _byStart > 0.15f) _dragging = true;
                 if (_dragging) DragTo(_grabNode);
             }
             else
             {
-                if (_byDown && !_dragging) PlaceInFront(); // released without dragging → recenter
+                // released without dragging → toggle between head-locked and pinned-in-world
+                if (_byDown && !_dragging) { followHead = !followHead; _placed = false; }
                 _byDown = false; _dragging = false;
             }
         }
@@ -446,8 +515,32 @@ namespace Egogrip
             else if (Mathf.Abs(stick.y) < 0.3f) _stickLatched = false;
             _cursor = Mathf.Clamp(_cursor, 0, count - 1);
 
-            if (grip && !_prevGrip) Toggle(_rows[_cursor]);
+            var row = _rows[_cursor];
+            if (row.kind == RowKind.Exit)
+            {
+                // Hold rather than tap: quitting mid-session is unrecoverable, a stray grip is not.
+                // _exitArmed means "grip was released while on this row", so scrolling onto EXIT with
+                // the grip already down can't start the countdown.
+                if (!grip) { _exitHeld = 0f; _exitArmed = true; }
+                else if (_exitArmed)
+                {
+                    _exitHeld += Time.deltaTime;
+                    if (_exitHeld >= exitHoldSeconds && !_quitting) { _quitting = true; QuitApp(); }
+                }
+            }
+            else
+            {
+                _exitHeld = 0f; _exitArmed = false;
+                if (grip && !_prevGrip) Toggle(row);
+            }
             _prevGrip = grip;
+        }
+
+        private void QuitApp()
+        {
+            if (_rec != null && _rec.IsRecording) _rec.StopRecording(); // never leave a half-written episode
+            Debug.Log("egogrip: exit requested from HUD");
+            Application.Quit();
         }
 
         private void Toggle(Row r)
@@ -519,15 +612,19 @@ namespace Egogrip
             return img;
         }
 
-        // Tile k of n as a full-width horizontal band (top→bottom) — wide landscape camera tiles.
-        private static Slot RowTile(Transform parent, string name, string title, int k, int n) =>
-            NewSlot(parent, name, title, new Vector2(0, 1f - (k + 1f) / n), new Vector2(1, 1f - k / (float)n));
+        // Tile k of n as a vertical column (left→right), so each tile is near-square and a 4:3 feed
+        // fills it instead of being crushed into a slit.
+        private static Slot ColumnTile(Transform parent, string name, string title, int k, int n) =>
+            NewSlot(parent, name, title, new Vector2(k / (float)n, 0), new Vector2((k + 1f) / n, 1));
 
         private static Slot NewSlot(Transform parent, string name, string title, Vector2 min, Vector2 max)
         {
             var bg = NewImage(parent, name, SlotBg, min, max, 4f);          // slot background (Image)
             var frameRt = NewRect(bg.rectTransform, "frame");              // video frame (RawImage child)
-            Stretch(frameRt, new Vector2(0, 0), new Vector2(1, 1), 3f);
+            // Centre-anchored (NOT stretched) so FitSlot can size it to the feed's real aspect ratio.
+            frameRt.anchorMin = frameRt.anchorMax = frameRt.pivot = new Vector2(0.5f, 0.5f);
+            frameRt.anchoredPosition = Vector2.zero;
+            frameRt.sizeDelta = Vector2.zero;
             var frame = frameRt.gameObject.AddComponent<RawImage>();
             frame.raycastTarget = false;
             frame.color = SlotBg;

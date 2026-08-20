@@ -22,6 +22,19 @@ class EgogripEgoRecorder {
 
     fun pushFrame(rgba: ByteArray, monotonicNs: Long) = enc?.pushFrame(rgba, monotonicNs) ?: Unit
 
+    /**
+     * Direct input buffer (`width*height*4` RGBA). Unity resolves its address ONCE with
+     * `AndroidJNI.GetDirectBufferAddress`, memcpys pixels straight in, then calls [pushFrameDirect].
+     * Avoids marshalling a multi-MB `byte[]` across JNI on every single frame.
+     */
+    fun inputBuffer(): java.nio.ByteBuffer? = enc?.inputBuffer()
+
+    /** Encode whatever was just written into [inputBuffer]. */
+    fun pushFrameDirect(monotonicNs: Long) = enc?.pushFrameDirect(monotonicNs) ?: Unit
+
+    /** Frames discarded because the encoder fell behind (0 is healthy). */
+    fun droppedFrames(): Int = enc?.droppedFrames() ?: 0
+
     /** Encode an ARCore/Camera2 YUV_420_888 frame directly (phone ego path). */
     fun pushImage(image: android.media.Image, monotonicNs: Long) = enc?.pushImage(image, monotonicNs) ?: Unit
 

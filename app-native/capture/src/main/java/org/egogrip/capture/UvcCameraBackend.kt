@@ -69,9 +69,12 @@ class UvcCameraBackend(private val context: Context) {
     @Volatile var frameCount = 0; private set   // total frames since preview opened (liveness)
     @Volatile var opened = false; private set    // camera open + preview running
 
-    // latest RGBA frame for the Unity preview
+    // Latest RGBA frame for the Unity preview. Double-buffered and REUSED: allocating a fresh
+    // ByteArray per frame here cost ~37 MB/s of garbage per camera at 640x480@30, and the resulting
+    // GC pressure stalls the whole process — including Unity's render thread.
     private val lock = Any()
-    private var latest: ByteArray? = null
+    private var latest: ByteArray? = null       // last completed frame (handed to Unity)
+    private var spare: ByteArray? = null        // buffer currently being filled
 
     /** Start continuous preview. Returns true once the helper is listening (open is async). */
     fun openPreview(): Boolean {
@@ -213,9 +216,11 @@ class UvcCameraBackend(private val context: Context) {
         val n = frame.remaining()
         if (!loggedFirstFrame) { loggedFirstFrame = true; Log.i(TAG, "UVC: first frame ($n bytes) ${width}x${height} — streaming") }
         if (n > 0) {
-            val buf = ByteArray(n)
+            // Fill the spare buffer, then swap it in — no per-frame allocation.
+            var buf = spare
+            if (buf == null || buf.size != n) { buf = ByteArray(n); spare = buf }
             frame.get(buf)
-            synchronized(lock) { latest = buf }
+            synchronized(lock) { spare = latest; latest = buf }
         }
         frameCount++
         if (recording) {

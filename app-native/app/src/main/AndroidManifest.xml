@@ -18,8 +18,9 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:label="egogrip Capture"
+        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
         <!-- "optional" so the app still installs/runs on non-AR devices (serial-only). -->

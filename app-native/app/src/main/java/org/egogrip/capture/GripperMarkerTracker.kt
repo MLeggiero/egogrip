@@ -2,9 +2,16 @@ package org.egogrip.capture
 
 import android.media.Image
 import com.google.ar.core.Camera
-import org.opencv.aruco.Aruco
+import org.opencv.calib3d.Calib3d
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfDouble
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.MatOfPoint3f
+import org.opencv.core.Point3
+import org.opencv.objdetect.ArucoDetector
+import org.opencv.objdetect.DetectorParameters
+import org.opencv.objdetect.Objdetect
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -26,18 +33,33 @@ import kotlin.math.sqrt
 class GripperMarkerTracker(
     private val writer: EpisodeWriter,
     private val markerId: Int = 0,
-    private val markerSizeM: Double = 0.05,          // printed marker edge length (metres)
+    markerSizeM: Double = 0.05,          // printed marker edge length (metres)
     offsetTranslation: FloatArray = floatArrayOf(0f, 0f, 0f), // T_marker_TCP
     offsetQuat: FloatArray = floatArrayOf(0f, 0f, 0f, 1f),
 ) {
-    private val dict = Aruco.getPredefinedDictionary(Aruco.DICT_4X4_50)
-    private val distCoeffs = Mat.zeros(1, 5, CvType.CV_64F)
+    private val detector: ArucoDetector
+    private val objPoints: MatOfPoint3f
+    private val distCoeffs = MatOfDouble(0.0, 0.0, 0.0, 0.0, 0.0)
     private val toffT = offsetTranslation
     private val toffQ = offsetQuat
     // 180° about X: maps an OpenCV camera-frame pose into the ARCore camera frame.
     private val qFlipX = floatArrayOf(1f, 0f, 0f, 0f)
 
-    init { writer.setGripperOffset(toffT, toffQ) }
+    init {
+        writer.setGripperOffset(toffT, toffQ)
+
+        val dict = Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
+        val params = DetectorParameters()
+        detector = ArucoDetector(dict, params)
+
+        val s = (markerSizeM / 2.0)
+        objPoints = MatOfPoint3f(
+            Point3(-s,  s, 0.0),
+            Point3( s,  s, 0.0),
+            Point3( s, -s, 0.0),
+            Point3(-s, -s, 0.0)
+        )
+    }
 
     /** Called per ARCore frame with the CPU image + camera (intrinsics + world pose). */
     fun onFrame(image: Image, cam: Camera, ns: Long) {
@@ -53,31 +75,39 @@ class GripperMarkerTracker(
 
             val corners = ArrayList<Mat>()
             val ids = Mat()
-            Aruco.detectMarkers(gray, dict, corners, ids)
+            detector.detectMarkers(gray, corners, ids)
             if (ids.total() == 0L) { gray.release(); return }
 
             val camMat = intrinsicsMat(cam)
-            val rvecs = Mat(); val tvecs = Mat()
-            Aruco.estimatePoseSingleMarkers(corners, markerSizeM.toFloat(), camMat, distCoeffs, rvecs, tvecs)
+            val rvec = MatOfDouble(); val tvec = MatOfDouble()
 
             for (i in 0 until ids.total().toInt()) {
                 if (ids.get(i, 0)[0].toInt() != markerId) continue
-                val rv = rvecs.get(i, 0); val tv = tvecs.get(i, 0) // axis-angle + translation, OpenCV cam frame
-                val qMarker = axisAngleToQuat(rv[0].toFloat(), rv[1].toFloat(), rv[2].toFloat())
-                var tMarker = floatArrayOf(tv[0].toFloat(), tv[1].toFloat(), tv[2].toFloat())
-                // OpenCV cam → ARCore cam
-                val qArcam = quatMul(qFlipX, qMarker)
-                tMarker = rotate(qFlipX, tMarker)
-                // camera world pose
-                val tCam = FloatArray(3); val qCam = FloatArray(4)
-                cam.pose.getTranslation(tCam, 0); cam.pose.getRotationQuaternion(qCam, 0)
-                // world ← cam ∘ marker ∘ markerTCP
-                var (tW, qW) = compose(tCam, qCam, tMarker, qArcam)
-                val c2 = compose(tW, qW, toffT, toffQ); tW = c2.first; qW = c2.second
-                writer.writeGripperPose(ns, tW[0], tW[1], tW[2], qW[0], qW[1], qW[2], qW[3], 1)
+                
+                val markerCorners = MatOfPoint2f()
+                corners[i].copyTo(markerCorners)
+                
+                if (Calib3d.solvePnP(objPoints, markerCorners, camMat, distCoeffs, rvec, tvec)) {
+                    val rv = DoubleArray(3); rvec.get(0, 0, rv)
+                    val tv = DoubleArray(3); tvec.get(0, 0, tv)
+                    
+                    val qMarker = axisAngleToQuat(rv[0].toFloat(), rv[1].toFloat(), rv[2].toFloat())
+                    var tMarker = floatArrayOf(tv[0].toFloat(), tv[1].toFloat(), tv[2].toFloat())
+                    // OpenCV cam → ARCore cam
+                    val qArcam = quatMul(qFlipX, qMarker)
+                    tMarker = rotate(qFlipX, tMarker)
+                    // camera world pose
+                    val tCam = FloatArray(3); val qCam = FloatArray(4)
+                    cam.pose.getTranslation(tCam, 0); cam.pose.getRotationQuaternion(qCam, 0)
+                    // world ← cam ∘ marker ∘ markerTCP
+                    var (tW, qW) = compose(tCam, qCam, tMarker, qArcam)
+                    val c2 = compose(tW, qW, toffT, toffQ); tW = c2.first; qW = c2.second
+                    writer.writeGripperPose(ns, tW[0], tW[1], tW[2], qW[0], qW[1], qW[2], qW[3], 1)
+                }
+                markerCorners.release()
                 break
             }
-            camMat.release(); rvecs.release(); tvecs.release(); gray.release()
+            camMat.release(); rvec.release(); tvec.release(); gray.release()
         } catch (_: Exception) { /* transient CV error → drop this frame */ }
     }
 
