@@ -9,6 +9,7 @@ import android.hardware.usb.UsbManager
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.StatFs
+import android.opengl.GLSurfaceView
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -22,6 +23,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import org.opencv.android.OpenCVLoader
 import com.hoho.android.usbserial.driver.UsbSerialProber
 
 /**
@@ -53,6 +55,11 @@ class MainActivity : Activity() {
     private var writer: EpisodeWriter? = null
     private var recording = false
 
+    // phone (ego) mode: ARCore drives the rear camera for ego video + head pose; the marker tracker
+    // localizes the AprilTag on the gripper → gripper_pose.
+    private var glView: GLSurfaceView? = null
+    private var arEgo: ArCoreEgoSource? = null
+
     private val ui = Handler(Looper.getMainLooper())
     private val ticker = object : Runnable {
         override fun run() {
@@ -65,12 +72,42 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!OpenCVLoader.initDebug()) {
+            Log.e("MainActivity", "OpenCV initialization failed")
+        }
         setContentView(buildUi())
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.CAMERA), 1)
         }
         refreshDevices()
-        log("Ready. Plug the hub (RP2040 + camera), then Refresh / Start.")
+        log("Ready. Wear the phone (ego), plug the hub (wrist cam + RP2040), then Start.")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setupArCore()
+        arEgo?.resume()
+        glView?.onResume()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        glView?.onPause()
+        arEgo?.pause()
+    }
+
+    // Create the ARCore session once CAMERA is granted (idempotent). The writer/tracker bind at Start.
+    private fun setupArCore() {
+        if (arEgo != null) return
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+        val ego = ArCoreEgoSource(this, onLog = { s -> runOnUiThread { log(s) } })
+        if (ego.create()) {
+            arEgo = ego
+            glView?.setRenderer(ego)
+            log("ARCore ready (ego). Wear the phone; keep the gripper marker in view.")
+        } else {
+            log("ARCore unavailable — serial-only capture (no ego pose/video).")
+        }
     }
 
     private fun buildUi(): android.view.View {
@@ -92,6 +129,13 @@ class MainActivity : Activity() {
 
         statusText = TextView(this).apply { text = "idle"; textSize = 18f; setPadding(0, 16, 0, 16) }
         root.addView(statusText)
+
+        // ARCore ego preview (aim the phone; the rear camera is the ego view).
+        glView = GLSurfaceView(this).apply {
+            setEGLContextClientVersion(2)
+            preserveEGLContextOnPause = true
+        }
+        root.addView(glView, LinearLayout.LayoutParams(MATCH_PARENT, 480))
 
         root.addView(title("USB devices on the hub"))
         deviceText = TextView(this).apply { textSize = 14f }
@@ -181,9 +225,18 @@ class MainActivity : Activity() {
         writer = w
         preflight()
 
-        // headset orientation (3-DoF, dependency-free) and USB/external camera (Camera2)
-        imu = ImuClient(this, w.dir).also { log(if (it.start()) "IMU started" else "IMU: no rotation sensor") }
-        camera = Camera2Client(this, w.dir, onLog = { s -> runOnUiThread { log(s) } }).also { it.start() }
+        // ego video + head pose (ARCore rear camera) + gripper 6-DoF from the AprilTag on the gripper.
+        val ego = arEgo
+        if (ego != null) {
+            // ⚠ set markerId / markerSizeM / T_marker_TCP from your calibration (defaults: id 0, 5 cm, identity).
+            val tracker = GripperMarkerTracker(w)
+            ego.startRecording(w, tracker)
+            log("ARCore ego recording (head pose + gripper marker).")
+        } else {
+            log("No ARCore — recording serial only (no ego/pose).")
+        }
+        // Wrist USB cameras (EgogripCamera) can be added here over the hub — one per camera, like the
+        // Unity path; each writes its own wristN.mp4 and w.addRawStream(cam.stopRecording()) on Stop.
 
         val protocol = Protocol(
             onState = { micros, raw, delta, trig -> w.writeState(CaptureClock.nowNs(), micros, raw, delta, trig) },
@@ -209,16 +262,8 @@ class MainActivity : Activity() {
         if (!recording) return
         recording = false
         serial?.stop(); serial = null
+        arEgo?.stopRecording() // finalizes ego.mp4 + splices its descriptor; gripper/head pose already written
         val w = writer
-        if (w != null) {
-            val cam = camera
-            val frames = cam?.stop() ?: 0
-            if (cam != null && frames > 0 && cam.width > 0) {
-                w.setVideo("wrist0", "wrist0.mp4", "wrist0_frames.csv", cam.width, cam.height, frames)
-            }
-            imu?.stop(w)
-        }
-        camera = null; imu = null
         val dir = w?.finalizeEpisode()
         writer = null
         startBtn.isEnabled = true; stopBtn.isEnabled = false

@@ -142,7 +142,7 @@ fully export yet — expected until Stage B.
 
 ## Stage B — one episode with everything (later)
 Package the native capture core (`Protocol.kt`, `SerialClient.kt`, `EpisodeWriter.kt`,
-`CaptureClock.kt`) as **`egogrip-capture.aar`** ([native-plugin/](../native-plugin/)) and call it
+`CaptureClock.kt`) as **`egogrip-capture.aar`** ([app-native/capture/](../app-native/capture/)) and call it
 from Unity, passing the **same `SystemClock.elapsedRealtimeNanos()` origin** (`EgogripClock` already
 reads it) so serial/camera/pose share one episode + clock. Then `egogrip-export` runs end-to-end.
 

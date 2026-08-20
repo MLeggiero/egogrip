@@ -12,6 +12,11 @@ android {
     defaultConfig {
         minSdk = 29
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -23,4 +28,6 @@ dependencies {
     // libuvc-based external UVC camera support (cameras Camera2 can't see, incl. the D405's
     // color stream). `api` so the consuming app/Unity gets it transitively.
     api("com.herohan:UVCAndroid:1.0.9")
+    // USB-serial (CDC) for the RP2040 gripper/tactile Picos. `api` so Unity's Gradle build sees it.
+    api("com.github.mik3y:usb-serial-for-android:3.8.1")
 }

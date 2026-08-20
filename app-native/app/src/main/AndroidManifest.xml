@@ -13,11 +13,18 @@
     <!-- Episodes are written to app-specific external storage (getExternalFilesDir),
          which needs no storage permission. Pull with:
          adb pull /sdcard/Android/data/org.egogrip.capture/files/episodes -->
+    <!-- ARCore (phone ego mode): VIO for ego video + head pose. Needs Google Play Services for AR. -->
+    <uses-feature android:name="android.hardware.camera.ar" android:required="false" />
+
     <application
         android:allowBackup="false"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:label="egogrip Capture"
+        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+
+        <!-- "optional" so the app still installs/runs on non-AR devices (serial-only). -->
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
 
         <activity
             android:name=".MainActivity"

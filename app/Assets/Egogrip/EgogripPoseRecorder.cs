@@ -36,6 +36,10 @@ namespace Egogrip
             [Tooltip("Episode CSV + manifest stream id. Right is conventionally 'gripper_pose'.")]
             public string streamId = "gripper_pose";
 
+            [Tooltip("Pre-flight enable: when false this controller stream is skipped by recording and " +
+                     "absent from the manifest. Toggled from the HUD roster while idle.")]
+            public bool enabled = true;
+
             [Tooltip("Inspector default controller->TCP offset (metres, controller-local). " +
                      "capture_config.json's xr_pose.pose_offset overrides this at record time.")]
             public Vector3 poseOffsetTranslation = Vector3.zero;
@@ -66,9 +70,13 @@ namespace Egogrip
         public bool recordHead = false;
 
         public enum InputSource { Controllers, Hands }
-        [Tooltip("Pose source. Controllers = today. Hands = built-in hand tracking (see plan). " +
-                 "Shown in the HUD; hand capture is the next milestone.")]
+        [Tooltip("Pose source. Controllers → 6-DoF controller pose (gripper_pose). Hands → PICO " +
+                 "26-joint hand tracking (poses.jsonl) plus a derived wrist gripper_pose. Toggle in " +
+                 "the HUD (grip on the INPUT row) while idle. Hands needs the EGOGRIP_PICO_HANDS build flag.")]
         public InputSource inputSource = InputSource.Controllers;
+
+        [Tooltip("Hands mode: which hand holds the gripper. Its wrist joint feeds the derived gripper_pose.")]
+        public XRNode gripperHand = XRNode.RightHand;
 
         [Tooltip("Optional: a USB/UVC wrist camera (egogrip-capture.aar). Leave empty for pose-only.")]
         public EgogripWristCamera wristCamera;
@@ -77,13 +85,80 @@ namespace Egogrip
                  "streamId; each auto-binds to a different physical USB camera. Add one component per camera.")]
         public EgogripWristCamera[] extraCameras;
 
-        // wristCamera + extraCameras, non-null and de-duplicated — the full set we drive.
-        private IEnumerable<EgogripWristCamera> AllCameras()
+        [Tooltip("How many USB wrist cameras to run. On Start, spawns EgogripWristCamera instances up to " +
+                 "this count (wrist0, wrist1, …); each backend auto-claims a distinct USB device. No hard " +
+                 "cap — USB bandwidth is the real limit (~2 full-rate streams; more at lower res/fps).")]
+        public int numWristCameras = 2;
+
+        [Tooltip("How many RP2040 (gripper + tactile) Picos to read over USB-serial. Spawns that many " +
+                 "EgogripSerial instances; each claims a distinct CDC device.")]
+        public int numSerialDevices = 2;
+
+        // Every EgogripWristCamera in the scene (serialized + spawned), cached at Start — the full set we drive.
+        private readonly List<EgogripWristCamera> _allCams = new List<EgogripWristCamera>();
+        private IEnumerable<EgogripWristCamera> AllCameras() => _allCams;
+
+        // Serial Picos + the ego camera, spawned in Awake and driven alongside the cameras.
+        private readonly List<EgogripSerial> _allSerial = new List<EgogripSerial>();
+        public IReadOnlyList<EgogripSerial> SerialDevices => _allSerial;
+        public EgogripEgoCamera Ego { get; private set; }
+
+        // Discover existing wrist cameras and spawn up to numWristCameras total, with unique wristN streamIds.
+        private void EnsureCameras()
         {
-            if (wristCamera != null) yield return wristCamera;
-            if (extraCameras != null)
-                foreach (var c in extraCameras)
-                    if (c != null && c != wristCamera) yield return c;
+            _allCams.Clear();
+            _allCams.AddRange(Object.FindObjectsByType<EgogripWristCamera>(FindObjectsSortMode.None));
+
+            var used = new HashSet<string>();
+            foreach (var c in _allCams) if (!string.IsNullOrEmpty(c.streamId)) used.Add(c.streamId);
+
+            int next = 0;
+            while (_allCams.Count < numWristCameras)
+            {
+                while (used.Contains($"wrist{next}")) next++;
+                string id = $"wrist{next++}";
+                var go = new GameObject($"WristCamera_{id}");
+                go.transform.SetParent(transform, false);
+                var cam = go.AddComponent<EgogripWristCamera>();
+                cam.streamId = id;
+                used.Add(id);
+                _allCams.Add(cam);
+            }
+            Debug.Log($"egogrip: {_allCams.Count} wrist camera(s): {string.Join(", ", _allCams.ConvertAll(c => c.streamId))}");
+        }
+
+        // Discover/spawn up to numSerialDevices RP2040 serial readers (unique deviceIndex each).
+        private void EnsureSerial()
+        {
+            _allSerial.Clear();
+            _allSerial.AddRange(Object.FindObjectsByType<EgogripSerial>(FindObjectsSortMode.None));
+            var used = new HashSet<int>();
+            foreach (var s in _allSerial) used.Add(s.deviceIndex);
+            int next = 0;
+            while (_allSerial.Count < numSerialDevices)
+            {
+                while (used.Contains(next)) next++;
+                int di = next++;
+                var go = new GameObject($"Serial_{di}");
+                go.transform.SetParent(transform, false);
+                var s = go.AddComponent<EgogripSerial>();
+                s.deviceIndex = di;
+                used.Add(di);
+                _allSerial.Add(s);
+            }
+            Debug.Log($"egogrip: {_allSerial.Count} serial device(s)");
+        }
+
+        // Ensure a single ego-camera source exists (simulate today; enterprise later).
+        private void EnsureEgo()
+        {
+            Ego = Object.FindFirstObjectByType<EgogripEgoCamera>();
+            if (Ego == null)
+            {
+                var go = new GameObject("EgoCamera");
+                go.transform.SetParent(transform, false);
+                Ego = go.AddComponent<EgogripEgoCamera>();
+            }
         }
 
         // head pose stream (XRNode.Head → head_pose.csv); included when recordHead is on at record start
@@ -98,9 +173,61 @@ namespace Egogrip
         private float _lastLog;
         private readonly List<InputDevice> _devs = new List<InputDevice>();
 
+        // Hands mode state
+        private readonly EgogripHandTracker _hands = new EgogripHandTracker();
+        private StreamWriter _handsJsonl;                 // poses.jsonl (skeleton stream)
+        private int _handCount;                           // poses.jsonl sample count
+        private ControllerStream _handGripper;            // derived gripper_pose (reuses CSV writer + pose_offset)
+
         public bool IsRecording => _recording;
-        public int SampleCount => (controllers != null && controllers.Length > 0) ? controllers[0].count : 0;
+        public int SampleCount => inputSource == InputSource.Hands
+            ? _handCount
+            : ((controllers != null && controllers.Length > 0) ? controllers[0].count : 0);
         public string CurrentEpisodeId => _episodeDir != null ? Path.GetFileName(_episodeDir) : "(none)";
+
+        /// <summary>Seconds since the current take armed (on the shared monotonic clock), or 0 when idle.
+        /// Drives the HUD recording timer.</summary>
+        public double RecordingDurationSec => _recording ? (EgogripClock.NowNs() - _startNs) / 1e9 : 0.0;
+
+        // Hand-tracking status for the HUD.
+        public bool HandTrackingAvailable => _hands.Available;
+        public bool HandTrackingCompiled => _hands.Compiled;
+        public bool LeftHandTracked { get; private set; }
+        public bool RightHandTracked { get; private set; }
+
+        /// <summary>Flip Controllers ↔ Hands. Idle-only so it can't change streams mid-take.</summary>
+        public void ToggleInputSource()
+        {
+            if (_recording) return;
+            inputSource = inputSource == InputSource.Controllers ? InputSource.Hands : InputSource.Controllers;
+            Debug.Log($"egogrip: inputSource={inputSource}");
+        }
+
+        // ---- pre-flight sensor roster (idle-only; the finalized manifest reflects the enabled set) ----
+
+        /// <summary>Enable/disable a controller's pose stream for the next take. Idle-only.</summary>
+        public void SetControllerEnabled(XRNode node, bool on)
+        {
+            if (_recording || controllers == null) return;
+            foreach (var c in controllers)
+                if (c.node == node) { c.enabled = on; Debug.Log($"egogrip: {node} pose {(on ? "ENABLED" : "DISABLED")}"); }
+        }
+
+        public bool GetControllerEnabled(XRNode node)
+        {
+            if (controllers != null)
+                foreach (var c in controllers)
+                    if (c.node == node) return c.enabled;
+            return false;
+        }
+
+        /// <summary>Enable/disable the head_pose stream for the next take. Idle-only.</summary>
+        public void SetHeadEnabled(bool on)
+        {
+            if (_recording) return;
+            recordHead = on;
+            Debug.Log($"egogrip: head pose {(on ? "ENABLED" : "DISABLED")}");
+        }
 
         private void EnsureControllers()
         {
@@ -111,6 +238,9 @@ namespace Egogrip
                     new ControllerStream { node = XRNode.LeftHand,  streamId = "gripper_pose_left" },
                 };
         }
+
+        // Spawn sources in Awake so they exist before any Start() (e.g. the HUD enumerating them).
+        private void Awake() { EnsureCameras(); EnsureSerial(); EnsureEgo(); }
 
         private void Start()
         {
@@ -131,7 +261,7 @@ namespace Egogrip
         {
             bool doLog = logHz > 0 && Time.realtimeSinceStartup - _lastLog >= 1f / logHz;
 
-            // ---- controller buttons: A/X toggles recording; B/Y toggles head-frame while idle ----
+            // ---- controller button: A/X toggles recording (head + sensor enables live in the HUD roster) ----
             foreach (var c in controllers)
             {
                 var dev = DeviceAt(c.node);
@@ -140,40 +270,102 @@ namespace Egogrip
                     if (btn && !c.prevButton) { if (_recording) StopRecording(); else StartRecording(); }
                     c.prevButton = btn;
                 }
-                if (dev.isValid && dev.TryGetFeatureValue(CommonUsages.secondaryButton, out bool btn2))
-                {
-                    if (btn2 && !c.prevButton2 && !_recording)
-                    {
-                        recordHead = !recordHead;
-                        Debug.Log($"egogrip: recordHead={recordHead}");
-                    }
-                    c.prevButton2 = btn2;
-                }
             }
 
-            // ---- write the active pose streams (controllers + optional head) while recording ----
+            // ---- write pose streams while recording (branch by input source) ----
             if (_recording)
             {
                 long t = EgogripClock.NowNs();
-                foreach (var c in _active)
-                {
-                    if (c.csv == null || !ReadPose(c, out Vector3 p, out Quaternion q, out int track)) continue;
-                    c.lastTracked = track;
-                    // pose -> TCP: p' = p + q*tOff ; q' = q * qOff (local offset; identity for head)
-                    Vector3 pt = p + q * c.offsetTranslation;
-                    Quaternion qt = q * c.offsetRot;
-                    c.csv.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                        "{0},{1:G9},{2:G9},{3:G9},{4:G9},{5:G9},{6:G9},{7:G9},{8}",
-                        t, pt.x, pt.y, pt.z, qt.x, qt.y, qt.z, qt.w, track));
-                    c.count++;
-                    if (c.count % 60 == 0) c.csv.Flush();
-                    _stopNs = t;
-                    if (doLog)
-                        Debug.Log($"egogrip: pose[{c.node}] t={t} p=({p.x:F3},{p.y:F3},{p.z:F3}) tracked={track} n={c.count}");
-                }
+                if (inputSource == InputSource.Hands) WriteHandsFrame(t);
+                else WriteControllerFrames(t, doLog);
             }
             if (doLog) _lastLog = Time.realtimeSinceStartup;
         }
+
+        // Controllers mode: write each active controller/head pose6dof row.
+        private void WriteControllerFrames(long t, bool doLog)
+        {
+            foreach (var c in _active)
+            {
+                if (c.csv == null || !ReadPose(c, out Vector3 p, out Quaternion q, out int track)) continue;
+                c.lastTracked = track;
+                // pose -> TCP: p' = p + q*tOff ; q' = q * qOff (local offset; identity for head)
+                Vector3 pt = p + q * c.offsetTranslation;
+                Quaternion qt = q * c.offsetRot;
+                WritePoseRow(c.csv, t, pt, qt, track);
+                c.count++;
+                if (c.count % 60 == 0) c.csv.Flush();
+                _stopNs = t;
+                if (doLog)
+                    Debug.Log($"egogrip: pose[{c.node}] t={t} p=({p.x:F3},{p.y:F3},{p.z:F3}) tracked={track} n={c.count}");
+            }
+        }
+
+        // Hands mode: write one poses.jsonl line (head + 26-joint hands) and one derived gripper_pose row.
+        private void WriteHandsFrame(long t)
+        {
+            if (!_hands.TryGetHands(out var hf)) { LeftHandTracked = RightHandTracked = false; return; }
+            LeftHandTracked = hf.leftTracked;
+            RightHandTracked = hf.rightTracked;
+
+            // head pose (from centre-eye), same read path controllers use for the head stream
+            ReadPose(_head, out Vector3 hp, out Quaternion hq, out _);
+            if (_handsJsonl != null)
+            {
+                _handsJsonl.WriteLine(BuildHandJsonLine(t, hp, hq, hf));
+                _handCount++;
+                if (_handCount % 30 == 0) _handsJsonl.Flush();
+            }
+
+            // derived gripper_pose from the gripper hand's wrist, with the same controller->TCP offset
+            bool rightHand = gripperHand != XRNode.LeftHand;
+            if (_handGripper?.csv != null && _hands.TryGetWrist(hf, rightHand, out Vector3 wp, out Quaternion wq))
+            {
+                Vector3 pt = wp + wq * _handGripper.offsetTranslation;
+                Quaternion qt = wq * _handGripper.offsetRot;
+                int track = (rightHand ? hf.rightTracked : hf.leftTracked) ? 1 : 0;
+                WritePoseRow(_handGripper.csv, t, pt, qt, track);
+                _handGripper.count++;
+                if (_handGripper.count % 30 == 0) _handGripper.csv.Flush();
+            }
+            _stopNs = t;
+        }
+
+        private static void WritePoseRow(StreamWriter w, long t, Vector3 p, Quaternion q, int track) =>
+            w.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "{0},{1:G9},{2:G9},{3:G9},{4:G9},{5:G9},{6:G9},{7:G9},{8}",
+                t, p.x, p.y, p.z, q.x, q.y, q.z, q.w, track));
+
+        // {monotonic_ns, head:{p,q}, hand_l:[26×{p,q}], hand_r:[26×{p,q}]}  (docs/DATA_FORMAT.md)
+        private static string BuildHandJsonLine(long t, Vector3 hp, Quaternion hq, EgogripHandTracker.HandFrame hf)
+        {
+            var sb = new StringBuilder(4096);
+            sb.Append("{\"monotonic_ns\":").Append(t).Append(",\"head\":");
+            AppendPoseJson(sb, hp, hq);
+            sb.Append(",\"hand_l\":");
+            AppendHandJson(sb, hf.left, hf.leftTracked);
+            sb.Append(",\"hand_r\":");
+            AppendHandJson(sb, hf.right, hf.rightTracked);
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        private static void AppendHandJson(StringBuilder sb, Pose[] joints, bool tracked)
+        {
+            if (!tracked || joints == null) { sb.Append("null"); return; }
+            sb.Append('[');
+            for (int i = 0; i < joints.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                AppendPoseJson(sb, joints[i].position, joints[i].rotation);
+            }
+            sb.Append(']');
+        }
+
+        private static void AppendPoseJson(StringBuilder sb, Vector3 p, Quaternion q) =>
+            sb.AppendFormat(CultureInfo.InvariantCulture,
+                "{{\"p\":[{0:G9},{1:G9},{2:G9}],\"q\":[{3:G9},{4:G9},{5:G9},{6:G9}]}}",
+                p.x, p.y, p.z, q.x, q.y, q.z, q.w);
 
         // Read a stream's 6-DoF pose. Head/CenterEye use the centre-eye usages (fall back to device);
         // controllers/hands use the device usages. Returns false if no valid device at that node.
@@ -202,8 +394,24 @@ namespace Egogrip
         private void BuildActive()
         {
             _active.Clear();
-            foreach (var c in controllers) _active.Add(c);
+            foreach (var c in controllers) if (c.enabled) _active.Add(c); // disabled → absent from episode + manifest
             if (recordHead) _active.Add(_head);
+        }
+
+        // Resolve a stream's controller->TCP offset: Inspector default, overridden by config xr_pose.
+        private void ResolveOffset(ControllerStream c, EgogripCaptureConfig.Root cfg)
+        {
+            c.offsetTranslation = c.poseOffsetTranslation;
+            c.offsetRot = EgogripCaptureConfig.EulerOffset(
+                c.poseOffsetEulerDeg.x, c.poseOffsetEulerDeg.y, c.poseOffsetEulerDeg.z);
+            var sensor = FindXrPose(cfg, c.node);
+            if (sensor != null)
+            {
+                if (!string.IsNullOrEmpty(sensor.stream_id)) c.streamId = sensor.stream_id;
+                if (sensor.pose_offset != null)
+                    EgogripCaptureConfig.ResolvePoseOffset(
+                        sensor.pose_offset, out c.offsetTranslation, out c.offsetRot);
+            }
         }
 
         public void StartRecording()
@@ -217,26 +425,34 @@ namespace Egogrip
             Debug.Log(cfg != null
                 ? $"egogrip: capture_config.json loaded ({(cfg.sensors != null ? cfg.sensors.Length : 0)} sensors)"
                 : "egogrip: no capture_config.json — using Inspector pose offsets");
-            BuildActive();
-            foreach (var c in _active)
+            if (inputSource == InputSource.Hands)
             {
-                // resolve controller->TCP offset: Inspector default, overridden by config xr_pose
-                c.offsetTranslation = c.poseOffsetTranslation;
-                c.offsetRot = EgogripCaptureConfig.EulerOffset(
-                    c.poseOffsetEulerDeg.x, c.poseOffsetEulerDeg.y, c.poseOffsetEulerDeg.z);
-                var sensor = FindXrPose(cfg, c.node);
-                if (sensor != null)
-                {
-                    if (!string.IsNullOrEmpty(sensor.stream_id)) c.streamId = sensor.stream_id;
-                    if (sensor.pose_offset != null)
-                        EgogripCaptureConfig.ResolvePoseOffset(
-                            sensor.pose_offset, out c.offsetTranslation, out c.offsetRot);
-                }
-                c.csv = new StreamWriter(Path.Combine(_episodeDir, c.streamId + ".csv"));
-                c.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
-                c.count = 0;
+                // Hands: a skeleton stream (poses.jsonl) + a derived gripper_pose from the gripper wrist.
+                _handsJsonl = new StreamWriter(Path.Combine(_episodeDir, "poses.jsonl"));
+                _handCount = 0;
+                _handGripper = new ControllerStream { node = gripperHand, streamId = "gripper_pose" };
+                ResolveOffset(_handGripper, cfg);
+                _handGripper.csv = new StreamWriter(Path.Combine(_episodeDir, _handGripper.streamId + ".csv"));
+                _handGripper.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
+                _handGripper.count = 0;
+                LeftHandTracked = RightHandTracked = false;
             }
-            foreach (var cam in AllCameras()) cam.StartInto(_episodeDir);
+            else
+            {
+                BuildActive();
+                foreach (var c in _active)
+                {
+                    ResolveOffset(c, cfg);
+                    c.csv = new StreamWriter(Path.Combine(_episodeDir, c.streamId + ".csv"));
+                    c.csv.WriteLine("monotonic_ns,x,y,z,qx,qy,qz,qw,tracking_state");
+                    c.count = 0;
+                }
+            }
+            foreach (var cam in AllCameras())
+                if (cam.captureEnabled) cam.StartInto(_episodeDir); // panel-toggled off → skipped this take
+            foreach (var s in _allSerial)
+                if (s.captureEnabled) s.StartInto(_episodeDir);
+            if (Ego != null && Ego.captureEnabled && Ego.Available) Ego.StartInto(_episodeDir);
             _startNs = EgogripClock.NowNs();
             _stopNs = _startNs;
             _recording = true;
@@ -248,10 +464,22 @@ namespace Egogrip
             if (!_recording) return;
             _recording = false;
             foreach (var c in _active) { c.csv?.Flush(); c.csv?.Close(); c.csv = null; }
+            _handsJsonl?.Flush(); _handsJsonl?.Close(); _handsJsonl = null;
+            if (_handGripper?.csv != null) { _handGripper.csv.Flush(); _handGripper.csv.Close(); _handGripper.csv = null; }
             var camStreams = new List<string>();
             foreach (var cam in AllCameras())
             {
                 string desc = cam.Stop();
+                if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
+            }
+            foreach (var s in _allSerial)
+            {
+                string desc = s.Stop(); // may be comma-joined gripper_state/tactile/sync descriptors
+                if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
+            }
+            if (Ego != null)
+            {
+                string desc = Ego.Stop();
                 if (!string.IsNullOrEmpty(desc)) camStreams.Add(desc);
             }
             File.WriteAllText(Path.Combine(_episodeDir, "manifest.json"), BuildManifest(camStreams));
@@ -275,23 +503,37 @@ namespace Egogrip
             return null;
         }
 
+        // A pose6dof manifest stream entry for a controller/derived-wrist stream.
+        private static string PoseEntry(ControllerStream c)
+        {
+            Vector3 ot = c.offsetTranslation;
+            Quaternion oq = c.offsetRot;
+            string off = string.Format(CultureInfo.InvariantCulture,
+                "\"pose_offset\": {{\"translation_m\": [{0:G9}, {1:G9}, {2:G9}], " +
+                "\"rotation_quat_xyzw\": [{3:G9}, {4:G9}, {5:G9}, {6:G9}]}}",
+                ot.x, ot.y, ot.z, oq.x, oq.y, oq.z, oq.w);
+            return "    {\"id\": \"" + c.streamId + "\", \"kind\": \"pose6dof\", \"file\": \"" +
+                   c.streamId + ".csv\", \"timestamp_field\": \"monotonic_ns\", " +
+                   "\"frame\": \"world\", \"units\": \"m\", \"sample_count\": " + c.count + ", " + off + "}";
+        }
+
         private string BuildManifest(List<string> camStreams)
         {
             string id = Path.GetFileName(_episodeDir);
 
+            bool hands = inputSource == InputSource.Hands;
             var entries = new List<string>();
-            foreach (var c in _active)
+            if (hands)
             {
-                Vector3 ot = c.offsetTranslation;
-                Quaternion oq = c.offsetRot;
-                string off = string.Format(CultureInfo.InvariantCulture,
-                    "\"pose_offset\": {{\"translation_m\": [{0:G9}, {1:G9}, {2:G9}], " +
-                    "\"rotation_quat_xyzw\": [{3:G9}, {4:G9}, {5:G9}, {6:G9}]}}",
-                    ot.x, ot.y, ot.z, oq.x, oq.y, oq.z, oq.w);
-                entries.Add("    {\"id\": \"" + c.streamId + "\", \"kind\": \"pose6dof\", \"file\": \"" +
-                            c.streamId + ".csv\", \"timestamp_field\": \"monotonic_ns\", " +
-                            "\"frame\": \"world\", \"units\": \"m\", \"sample_count\": " + c.count +
-                            ", " + off + "}");
+                if (_handGripper != null) entries.Add(PoseEntry(_handGripper));       // derived wrist gripper_pose
+                entries.Add("    {\"id\": \"hands\", \"kind\": \"skeleton\", \"file\": \"poses.jsonl\", " +
+                            "\"timestamp_field\": \"monotonic_ns\", \"frame\": \"world\", \"units\": \"m\", " +
+                            "\"sample_count\": " + _handCount + ", \"layout\": \"openxr_hand_joints_26\", " +
+                            "\"hands\": [\"left\", \"right\"]}");
+            }
+            else
+            {
+                foreach (var c in _active) entries.Add(PoseEntry(c));
             }
             if (camStreams != null)
                 foreach (var s in camStreams)
@@ -302,14 +544,16 @@ namespace Egogrip
             sb.Append("{\n");
             sb.Append("  \"format_version\": \"0.1.0\",\n");
             sb.Append($"  \"episode_id\": \"{id}\",\n");
-            sb.Append("  \"task_label\": \"unity controller pose capture\",\n");
+            sb.Append($"  \"task_label\": \"unity {(hands ? "hand tracking" : "controller pose")} capture\",\n");
             sb.Append("  \"conventions\": {\"length_unit\": \"m\", \"time_unit\": \"ns\", " +
                       "\"world_frame\": \"unity_y_up_lh\", \"quaternion_order\": \"xyzw\"},\n");
             sb.Append("  \"device\": {\n");
             sb.Append($"    \"model\": \"{SystemInfo.deviceModel}\", \"platform\": \"pico\", " +
                       $"\"os\": \"{SystemInfo.operatingSystem}\", \"app_version\": \"0.1.0\",\n");
-            sb.Append("    \"capabilities\": {\"ego_rgb\": false, \"ego_depth\": false, " +
-                      "\"head_pose\": false, \"hand_tracking\": false, \"controller_pose\": true, " +
+            sb.Append($"    \"capabilities\": {{\"ego_rgb\": {((Ego != null && Ego.Available) ? "true" : "false")}, \"ego_depth\": false, " +
+                      $"\"head_pose\": {((hands || recordHead) ? "true" : "false")}, " +
+                      $"\"hand_tracking\": {(hands ? "true" : "false")}, " +
+                      $"\"controller_pose\": {(hands ? "false" : "true")}, " +
                       "\"world_frame\": \"unity_y_up_lh\"}\n");
             sb.Append("  },\n");
             sb.Append($"  \"clock\": {{\"source\": \"SystemClock.elapsedRealtimeNanos\", \"unit\": \"ns\", " +

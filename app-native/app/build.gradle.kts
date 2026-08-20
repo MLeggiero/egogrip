@@ -20,6 +20,11 @@ android {
     buildTypes {
         release { isMinifyEnabled = false }
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -28,11 +33,22 @@ android {
 }
 
 dependencies {
-    // Shared capture core (CaptureClock, Camera2Client, EgogripCamera) — also built as the AAR.
+    // Shared capture core (CaptureClock, EgogripCamera/UVC, EgogripSerial, EgogripFrameEncoder) — the AAR.
     implementation(project(":capture"))
 
     // The ONLY hard dependency: USB-serial (CDC/FTDI) for the RP2040. Rock solid.
     implementation("com.github.mik3y:usb-serial-for-android:3.8.1")
+
+    // --- Phone (ego) mode: ARCore VIO (ego video + head pose) ---
+    // Needs Google Play Services for AR on the device (flagships have it / auto-installs).
+    implementation("com.google.ar:core:1.42.0")
+
+    // --- Gripper marker tracking (AprilTag/ArUco + PnP) ---
+    // OpenCV on Maven (4.9+). NOTE: ArUco moved from contrib `org.opencv.aruco` into the core
+    // `org.opencv.objdetect.ArucoDetector` in OpenCV 4.7+ — if this Maven package doesn't ship the
+    // classic `org.opencv.aruco.Aruco` used in GripperMarkerTracker, switch to ArucoDetector or import
+    // the OpenCV Android SDK module. Verify at build time.
+    implementation("org.opencv:opencv:4.9.0")
 
     // --- OPTIONAL camera (UVC) ---  Leave this commented for tomorrow's first build so a
     // flaky camera lib can never block the serial path. To enable: uncomment, copy
